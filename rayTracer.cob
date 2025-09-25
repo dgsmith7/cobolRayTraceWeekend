@@ -91,10 +91,11 @@
            05  VEC3-TEMP-CALC      PIC S9V9(6) COMP-3.  *> General temp calc
            
        01  VEC3-OUTPUT-LINE        PIC X(40).  *> For vector display
+      * Display formatting variables (COMP-3 cannot be used in STRING)
        01  VEC3-DISPLAY-VARS.                  *> For STRING operations
-           05  VEC3-DISPLAY-X      PIC -(6)9.9(6).
-           05  VEC3-DISPLAY-Y      PIC -(6)9.9(6).
-           05  VEC3-DISPLAY-Z      PIC -(6)9.9(6).
+           05  VEC3-DISPLAY-X      PIC -(6)9.9(6).  *> X component in display format
+           05  VEC3-DISPLAY-Y      PIC -(6)9.9(6).  *> Y component in display format
+           05  VEC3-DISPLAY-Z      PIC -(6)9.9(6).  *> Z component in display format
 
       *****************************************************************
       * COLOR DATA STRUCTURES - Color Support (using color = vec3)   *
@@ -218,6 +219,9 @@
            MOVE VEC3-A-Y TO VEC3-RESULT-Y
            MOVE VEC3-A-Z TO VEC3-RESULT-Z.
            
+      *****************************************************************
+      * VEC3 ACCESSOR METHODS - Component Access                      *
+      *****************************************************************
       * Accessor procedures (equivalent to x(), y(), z() methods)
       * Get X component of VEC3-A (result in VEC3-TEMP-CALC)
        VEC3-GET-X-A.
@@ -232,185 +236,206 @@
            MOVE VEC3-A-Z TO VEC3-TEMP-CALC.
            
       * Array-style access for VEC3-A (index in VEC3-SCALAR, result in VEC3-TEMP-CALC)
+      * Equivalent to: vec3[index] where index 0=X, 1=Y, 2=Z
        VEC3-GET-ELEMENT-A.
            EVALUATE VEC3-SCALAR
-               WHEN 0 MOVE VEC3-A-X TO VEC3-TEMP-CALC
-               WHEN 1 MOVE VEC3-A-Y TO VEC3-TEMP-CALC  
-               WHEN 2 MOVE VEC3-A-Z TO VEC3-TEMP-CALC
-               WHEN OTHER MOVE 0 TO VEC3-TEMP-CALC
+               WHEN 0 MOVE VEC3-A-X TO VEC3-TEMP-CALC  *> Return X component
+               WHEN 1 MOVE VEC3-A-Y TO VEC3-TEMP-CALC  *> Return Y component
+               WHEN 2 MOVE VEC3-A-Z TO VEC3-TEMP-CALC  *> Return Z component
+               WHEN OTHER MOVE 0 TO VEC3-TEMP-CALC     *> Invalid index
            END-EVALUATE.
            
-      * Arithmetic Operations
-      * Vector addition: VEC3-RESULT = VEC3-A + VEC3-B
+      *****************************************************************
+      * VEC3 ARITHMETIC OPERATIONS - Vector Math                     *
+      *****************************************************************
+      * Vector addition: VEC3-RESULT = VEC3-A + VEC3-B (operator+ equivalent)
        VEC3-ADD.
-           ADD VEC3-A-X TO VEC3-B-X GIVING VEC3-RESULT-X
-           ADD VEC3-A-Y TO VEC3-B-Y GIVING VEC3-RESULT-Y
-           ADD VEC3-A-Z TO VEC3-B-Z GIVING VEC3-RESULT-Z.
+           ADD VEC3-A-X TO VEC3-B-X GIVING VEC3-RESULT-X  *> Result X = A.X + B.X
+           ADD VEC3-A-Y TO VEC3-B-Y GIVING VEC3-RESULT-Y  *> Result Y = A.Y + B.Y
+           ADD VEC3-A-Z TO VEC3-B-Z GIVING VEC3-RESULT-Z. *> Result Z = A.Z + B.Z
            
-      * Vector subtraction: VEC3-RESULT = VEC3-A - VEC3-B  
+      * Vector subtraction: VEC3-RESULT = VEC3-A - VEC3-B (operator- equivalent)
        VEC3-SUBTRACT.
-           SUBTRACT VEC3-B-X FROM VEC3-A-X GIVING VEC3-RESULT-X
-           SUBTRACT VEC3-B-Y FROM VEC3-A-Y GIVING VEC3-RESULT-Y
-           SUBTRACT VEC3-B-Z FROM VEC3-A-Z GIVING VEC3-RESULT-Z.
+           SUBTRACT VEC3-B-X FROM VEC3-A-X GIVING VEC3-RESULT-X  *> Result X = A.X - B.X
+           SUBTRACT VEC3-B-Y FROM VEC3-A-Y GIVING VEC3-RESULT-Y  *> Result Y = A.Y - B.Y
+           SUBTRACT VEC3-B-Z FROM VEC3-A-Z GIVING VEC3-RESULT-Z. *> Result Z = A.Z - B.Z
            
-      * Vector negation: VEC3-RESULT = -VEC3-A
+      * Vector negation: VEC3-RESULT = -VEC3-A (unary operator- equivalent)
        VEC3-NEGATE-A.
-           COMPUTE VEC3-RESULT-X = -VEC3-A-X
-           COMPUTE VEC3-RESULT-Y = -VEC3-A-Y
-           COMPUTE VEC3-RESULT-Z = -VEC3-A-Z.
+           COMPUTE VEC3-RESULT-X = -VEC3-A-X  *> Negate X component
+           COMPUTE VEC3-RESULT-Y = -VEC3-A-Y  *> Negate Y component
+           COMPUTE VEC3-RESULT-Z = -VEC3-A-Z. *> Negate Z component
            
-      * Scalar multiplication: VEC3-RESULT = VEC3-SCALAR * VEC3-A
+      * Scalar multiplication: VEC3-RESULT = VEC3-SCALAR * VEC3-A (t * vec equivalent)
        VEC3-MULTIPLY-SCALAR-A.
-           COMPUTE VEC3-RESULT-X = VEC3-SCALAR * VEC3-A-X
-           COMPUTE VEC3-RESULT-Y = VEC3-SCALAR * VEC3-A-Y
-           COMPUTE VEC3-RESULT-Z = VEC3-SCALAR * VEC3-A-Z.
+           COMPUTE VEC3-RESULT-X = VEC3-SCALAR * VEC3-A-X  *> Scale X component
+           COMPUTE VEC3-RESULT-Y = VEC3-SCALAR * VEC3-A-Y  *> Scale Y component
+           COMPUTE VEC3-RESULT-Z = VEC3-SCALAR * VEC3-A-Z. *> Scale Z component
            
-      * Component-wise multiplication: VEC3-RESULT = VEC3-A * VEC3-B
+      * Component-wise multiplication: VEC3-RESULT = VEC3-A * VEC3-B (Hadamard product)
        VEC3-MULTIPLY-VECTORS.
-           COMPUTE VEC3-RESULT-X = VEC3-A-X * VEC3-B-X
-           COMPUTE VEC3-RESULT-Y = VEC3-A-Y * VEC3-B-Y
-           COMPUTE VEC3-RESULT-Z = VEC3-A-Z * VEC3-B-Z.
+           COMPUTE VEC3-RESULT-X = VEC3-A-X * VEC3-B-X  *> Multiply X components
+           COMPUTE VEC3-RESULT-Y = VEC3-A-Y * VEC3-B-Y  *> Multiply Y components
+           COMPUTE VEC3-RESULT-Z = VEC3-A-Z * VEC3-B-Z. *> Multiply Z components
            
-      * Scalar division: VEC3-RESULT = VEC3-A / VEC3-SCALAR
+      * Scalar division: VEC3-RESULT = VEC3-A / VEC3-SCALAR (vec / t equivalent)
        VEC3-DIVIDE-SCALAR-A.
-           COMPUTE VEC3-RESULT-X = VEC3-A-X / VEC3-SCALAR
-           COMPUTE VEC3-RESULT-Y = VEC3-A-Y / VEC3-SCALAR
-           COMPUTE VEC3-RESULT-Z = VEC3-A-Z / VEC3-SCALAR.
+           COMPUTE VEC3-RESULT-X = VEC3-A-X / VEC3-SCALAR  *> Divide X component
+           COMPUTE VEC3-RESULT-Y = VEC3-A-Y / VEC3-SCALAR  *> Divide Y component
+           COMPUTE VEC3-RESULT-Z = VEC3-A-Z / VEC3-SCALAR. *> Divide Z component
            
-      * In-place operations (equivalent to +=, *=, /= operators)
-      * VEC3-A += VEC3-B
+      *****************************************************************
+      * VEC3 IN-PLACE OPERATIONS - Modify Vector In Place            *
+      *****************************************************************
+      * VEC3-A += VEC3-B (operator+= equivalent)
        VEC3-ADD-TO-A.
-           ADD VEC3-B-X TO VEC3-A-X
-           ADD VEC3-B-Y TO VEC3-A-Y
-           ADD VEC3-B-Z TO VEC3-A-Z.
+           ADD VEC3-B-X TO VEC3-A-X  *> A.X += B.X
+           ADD VEC3-B-Y TO VEC3-A-Y  *> A.Y += B.Y
+           ADD VEC3-B-Z TO VEC3-A-Z. *> A.Z += B.Z
            
-      * VEC3-A *= VEC3-SCALAR
+      * VEC3-A *= VEC3-SCALAR (operator*= equivalent)
        VEC3-MULTIPLY-A-BY-SCALAR.
-           COMPUTE VEC3-A-X = VEC3-A-X * VEC3-SCALAR
-           COMPUTE VEC3-A-Y = VEC3-A-Y * VEC3-SCALAR
-           COMPUTE VEC3-A-Z = VEC3-A-Z * VEC3-SCALAR.
+           COMPUTE VEC3-A-X = VEC3-A-X * VEC3-SCALAR  *> A.X *= scalar
+           COMPUTE VEC3-A-Y = VEC3-A-Y * VEC3-SCALAR  *> A.Y *= scalar
+           COMPUTE VEC3-A-Z = VEC3-A-Z * VEC3-SCALAR. *> A.Z *= scalar
            
-      * VEC3-A /= VEC3-SCALAR  
+      * VEC3-A /= VEC3-SCALAR (operator/= equivalent)
        VEC3-DIVIDE-A-BY-SCALAR.
-           COMPUTE VEC3-A-X = VEC3-A-X / VEC3-SCALAR
-           COMPUTE VEC3-A-Y = VEC3-A-Y / VEC3-SCALAR
-           COMPUTE VEC3-A-Z = VEC3-A-Z / VEC3-SCALAR.
+           COMPUTE VEC3-A-X = VEC3-A-X / VEC3-SCALAR  *> A.X /= scalar
+           COMPUTE VEC3-A-Y = VEC3-A-Y / VEC3-SCALAR  *> A.Y /= scalar
+           COMPUTE VEC3-A-Z = VEC3-A-Z / VEC3-SCALAR. *> A.Z /= scalar
            
-      * Vector utility functions
-      * Calculate length squared of VEC3-A (result in VEC3-LENGTH-SQR)
+      *****************************************************************
+      * VEC3 UTILITY FUNCTIONS - Advanced Vector Operations          *
+      *****************************************************************
+      * Calculate length squared of VEC3-A: |A|² = A.X² + A.Y² + A.Z²
+      * (Result stored in VEC3-LENGTH-SQR - more efficient than length)
        VEC3-LENGTH-SQUARED-A.
            COMPUTE VEC3-LENGTH-SQR = (VEC3-A-X * VEC3-A-X) + 
                                      (VEC3-A-Y * VEC3-A-Y) + 
                                      (VEC3-A-Z * VEC3-A-Z).
                                      
-      * Calculate length of VEC3-A (result in VEC3-LENGTH)
+      * Calculate length (magnitude) of VEC3-A: |A| = √(A.X² + A.Y² + A.Z²)
+      * (Result stored in VEC3-LENGTH)
        VEC3-LENGTH-A.
-           PERFORM VEC3-LENGTH-SQUARED-A
-           COMPUTE VEC3-LENGTH = VEC3-LENGTH-SQR ** 0.5.
+           PERFORM VEC3-LENGTH-SQUARED-A      *> First get length squared
+           COMPUTE VEC3-LENGTH = VEC3-LENGTH-SQR ** 0.5.  *> Then take square root
            
-      * Dot product: VEC3-DOT-PRODUCT = VEC3-A • VEC3-B
+      * Dot product: VEC3-DOT-PRODUCT = VEC3-A • VEC3-B = A.X*B.X + A.Y*B.Y + A.Z*B.Z
+      * (Measures how parallel two vectors are)
        VEC3-CALCULATE-DOT-PRODUCT.
            COMPUTE VEC3-DOT-PRODUCT = (VEC3-A-X * VEC3-B-X) +
                                       (VEC3-A-Y * VEC3-B-Y) +
                                       (VEC3-A-Z * VEC3-B-Z).
                                       
       * Cross product: VEC3-RESULT = VEC3-A × VEC3-B
+      * Creates a vector perpendicular to both A and B
+      * Formula: (A.Y*B.Z - A.Z*B.Y, A.Z*B.X - A.X*B.Z, A.X*B.Y - A.Y*B.X)
        VEC3-CROSS-PRODUCT.
            COMPUTE VEC3-RESULT-X = (VEC3-A-Y * VEC3-B-Z) - 
-                                   (VEC3-A-Z * VEC3-B-Y)
+                                   (VEC3-A-Z * VEC3-B-Y)  *> X = A.Y*B.Z - A.Z*B.Y
            COMPUTE VEC3-RESULT-Y = (VEC3-A-Z * VEC3-B-X) - 
-                                   (VEC3-A-X * VEC3-B-Z)
+                                   (VEC3-A-X * VEC3-B-Z)  *> Y = A.Z*B.X - A.X*B.Z
            COMPUTE VEC3-RESULT-Z = (VEC3-A-X * VEC3-B-Y) - 
-                                   (VEC3-A-Y * VEC3-B-X).
+                                   (VEC3-A-Y * VEC3-B-X). *> Z = A.X*B.Y - A.Y*B.X
            
-      * Unit vector: VEC3-RESULT = VEC3-A / |VEC3-A|
+      * Unit vector: VEC3-RESULT = VEC3-A / |VEC3-A| (normalize to length 1)
+      * Creates a vector pointing in same direction as A but with length 1
        VEC3-UNIT-VECTOR-A.
-           PERFORM VEC3-LENGTH-A
+           PERFORM VEC3-LENGTH-A               *> Calculate vector length
            MOVE VEC3-LENGTH TO VEC3-SCALAR
            PERFORM VEC3-MULTIPLY-SCALAR-A
       * Note: This puts unit vector in VEC3-RESULT, but actually divides by length
-           COMPUTE VEC3-RESULT-X = VEC3-A-X / VEC3-LENGTH
-           COMPUTE VEC3-RESULT-Y = VEC3-A-Y / VEC3-LENGTH
-           COMPUTE VEC3-RESULT-Z = VEC3-A-Z / VEC3-LENGTH.
+           COMPUTE VEC3-RESULT-X = VEC3-A-X / VEC3-LENGTH  *> Normalize X
+           COMPUTE VEC3-RESULT-Y = VEC3-A-Y / VEC3-LENGTH  *> Normalize Y
+           COMPUTE VEC3-RESULT-Z = VEC3-A-Z / VEC3-LENGTH. *> Normalize Z
            
-      * Output/Display procedures (equivalent to ostream operator)
-      * Display VEC3-A components to terminal
+      *****************************************************************
+      * VEC3 OUTPUT PROCEDURES - Display and File Operations         *
+      *****************************************************************
+      * Display VEC3-A components to terminal (equivalent to cout << vec3)
+      * Note: Must convert COMP-3 to DISPLAY format before STRING operation
        VEC3-DISPLAY-A.
-           MOVE VEC3-A-X TO VEC3-DISPLAY-X
-           MOVE VEC3-A-Y TO VEC3-DISPLAY-Y
-           MOVE VEC3-A-Z TO VEC3-DISPLAY-Z
+           MOVE VEC3-A-X TO VEC3-DISPLAY-X     *> Convert X to display format
+           MOVE VEC3-A-Y TO VEC3-DISPLAY-Y     *> Convert Y to display format
+           MOVE VEC3-A-Z TO VEC3-DISPLAY-Z     *> Convert Z to display format
            STRING VEC3-DISPLAY-X " " VEC3-DISPLAY-Y " " VEC3-DISPLAY-Z
                   DELIMITED BY SIZE INTO VEC3-OUTPUT-LINE
-           DISPLAY VEC3-OUTPUT-LINE.
+           DISPLAY VEC3-OUTPUT-LINE.            *> Output: "X.XXXXXX Y.YYYYYY Z.ZZZZZZ"
            
-      * Display VEC3-RESULT components to terminal  
+      * Display VEC3-RESULT components to terminal
        VEC3-DISPLAY-RESULT.
-           MOVE VEC3-RESULT-X TO VEC3-DISPLAY-X
-           MOVE VEC3-RESULT-Y TO VEC3-DISPLAY-Y
-           MOVE VEC3-RESULT-Z TO VEC3-DISPLAY-Z
+           MOVE VEC3-RESULT-X TO VEC3-DISPLAY-X *> Convert X to display format
+           MOVE VEC3-RESULT-Y TO VEC3-DISPLAY-Y *> Convert Y to display format
+           MOVE VEC3-RESULT-Z TO VEC3-DISPLAY-Z *> Convert Z to display format
            STRING VEC3-DISPLAY-X " " VEC3-DISPLAY-Y " " VEC3-DISPLAY-Z
                   DELIMITED BY SIZE INTO VEC3-OUTPUT-LINE
-           DISPLAY VEC3-OUTPUT-LINE.
+           DISPLAY VEC3-OUTPUT-LINE.            *> Output formatted vector
            
-      * Write VEC3-A components to file
+      * Write VEC3-A components to file (for file output)
        VEC3-WRITE-A-TO-FILE.
-           MOVE VEC3-A-X TO VEC3-DISPLAY-X
-           MOVE VEC3-A-Y TO VEC3-DISPLAY-Y
-           MOVE VEC3-A-Z TO VEC3-DISPLAY-Z
+           MOVE VEC3-A-X TO VEC3-DISPLAY-X     *> Convert to display format
+           MOVE VEC3-A-Y TO VEC3-DISPLAY-Y     *> Convert to display format
+           MOVE VEC3-A-Z TO VEC3-DISPLAY-Z     *> Convert to display format
            STRING VEC3-DISPLAY-X " " VEC3-DISPLAY-Y " " VEC3-DISPLAY-Z
                   DELIMITED BY SIZE INTO VEC3-OUTPUT-LINE
-           MOVE VEC3-OUTPUT-LINE TO OUTPUT-RECORD
-           WRITE OUTPUT-RECORD.
+           MOVE VEC3-OUTPUT-LINE TO OUTPUT-RECORD  *> Prepare for file write
+           WRITE OUTPUT-RECORD.                 *> Write vector to file
            
       *****************************************************************
       * COLOR PROCEDURES - Color Output Support                      *
       *****************************************************************
       
       * Write color to output stream (equivalent to write_color function)
-      * Input: PIXEL-COLOR contains color components (0.0-1.0)
-      * Output: Writes RGB bytes to file
+      * This is the main color output function from the C++ tutorial
+      * Input: PIXEL-COLOR contains color components (0.0-1.0 range)
+      * Output: Writes RGB bytes (0-255 range) to PPM file
        WRITE-COLOR-TO-FILE.
       * Get RGB components from pixel color (equivalent to pixel_color.x(), y(), z())
-           MOVE PIXEL-COLOR-R TO TEMP-R
-           MOVE PIXEL-COLOR-G TO TEMP-G
-           MOVE PIXEL-COLOR-B TO B
+           MOVE PIXEL-COLOR-R TO TEMP-R        *> Extract red component
+           MOVE PIXEL-COLOR-G TO TEMP-G        *> Extract green component
+           MOVE PIXEL-COLOR-B TO B             *> Extract blue component
            
       * Translate [0,1] component values to byte range [0,255]
+      * Uses same 255.999 multiplier as C++ version for proper rounding
            COMPUTE COLOR-R-BYTE = 255.999 * TEMP-R    *> rbyte = int(255.999 * r)
            COMPUTE COLOR-G-BYTE = 255.999 * TEMP-G    *> gbyte = int(255.999 * g)  
            COMPUTE COLOR-B-BYTE = 255.999 * B         *> bbyte = int(255.999 * b)
            
-      * Write out the pixel color components
+      * Write out the pixel color components in PPM format
            STRING COLOR-R-BYTE " " COLOR-G-BYTE " " COLOR-B-BYTE
                   DELIMITED BY SIZE INTO COLOR-OUTPUT-LINE
            MOVE COLOR-OUTPUT-LINE TO OUTPUT-RECORD
-           WRITE OUTPUT-RECORD.
+           WRITE OUTPUT-RECORD.                 *> Output: "255 128 64" (example)
            
-      * Write color to terminal (for debugging/display)
+      * Write color to terminal (for debugging/display purposes)
+      * Same as WRITE-COLOR-TO-FILE but outputs to terminal instead of file
        WRITE-COLOR-TO-TERMINAL.
       * Get RGB components and convert to bytes
-           MOVE PIXEL-COLOR-R TO TEMP-R
-           MOVE PIXEL-COLOR-G TO TEMP-G
-           MOVE PIXEL-COLOR-B TO B
+           MOVE PIXEL-COLOR-R TO TEMP-R        *> Extract red component
+           MOVE PIXEL-COLOR-G TO TEMP-G        *> Extract green component
+           MOVE PIXEL-COLOR-B TO B             *> Extract blue component
            
-           COMPUTE COLOR-R-BYTE = 255.999 * TEMP-R
-           COMPUTE COLOR-G-BYTE = 255.999 * TEMP-G
-           COMPUTE COLOR-B-BYTE = 255.999 * B
+           COMPUTE COLOR-R-BYTE = 255.999 * TEMP-R  *> Convert to byte range
+           COMPUTE COLOR-G-BYTE = 255.999 * TEMP-G  *> Convert to byte range
+           COMPUTE COLOR-B-BYTE = 255.999 * B       *> Convert to byte range
            
-      * Display color components
+      * Display color components to terminal
            STRING COLOR-R-BYTE " " COLOR-G-BYTE " " COLOR-B-BYTE
                   DELIMITED BY SIZE INTO COLOR-OUTPUT-LINE
-           DISPLAY COLOR-OUTPUT-LINE.
+           DISPLAY COLOR-OUTPUT-LINE.           *> Show RGB values on screen
            
       * Initialize color from vec3 (copy VEC3-A to PIXEL-COLOR)
+      * Equivalent to: color pixel_color = some_vec3;
        COLOR-FROM-VEC3-A.
-           MOVE VEC3-A-X TO PIXEL-COLOR-R
-           MOVE VEC3-A-Y TO PIXEL-COLOR-G
-           MOVE VEC3-A-Z TO PIXEL-COLOR-B.
+           MOVE VEC3-A-X TO PIXEL-COLOR-R      *> Copy X -> Red component
+           MOVE VEC3-A-Y TO PIXEL-COLOR-G      *> Copy Y -> Green component
+           MOVE VEC3-A-Z TO PIXEL-COLOR-B.     *> Copy Z -> Blue component
            
       * Initialize color with specific RGB values
-      * Input: Set values in VEC3-TEMP before calling
+      * Equivalent to: color pixel_color(r, g, b);
+      * Input: Set values in VEC3-TEMP before calling (X=R, Y=G, Z=B)
        COLOR-INIT-RGB.
-           MOVE VEC3-TEMP-X TO PIXEL-COLOR-R
-           MOVE VEC3-TEMP-Y TO PIXEL-COLOR-G
-           MOVE VEC3-TEMP-Z TO PIXEL-COLOR-B.
+           MOVE VEC3-TEMP-X TO PIXEL-COLOR-R   *> Set red component
+           MOVE VEC3-TEMP-Y TO PIXEL-COLOR-G   *> Set green component
+           MOVE VEC3-TEMP-Z TO PIXEL-COLOR-B.  *> Set blue component
