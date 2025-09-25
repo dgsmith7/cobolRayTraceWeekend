@@ -91,6 +91,26 @@
            05  VEC3-TEMP-CALC      PIC S9V9(6) COMP-3.  *> General temp calc
            
        01  VEC3-OUTPUT-LINE        PIC X(40).  *> For vector display
+       01  VEC3-DISPLAY-VARS.                  *> For STRING operations
+           05  VEC3-DISPLAY-X      PIC -(6)9.9(6).
+           05  VEC3-DISPLAY-Y      PIC -(6)9.9(6).
+           05  VEC3-DISPLAY-Z      PIC -(6)9.9(6).
+
+      *****************************************************************
+      * COLOR DATA STRUCTURES - Color Support (using color = vec3)   *
+      *****************************************************************
+      * Color structures (equivalent to color alias for vec3)
+       01  PIXEL-COLOR.                        *> Current pixel color
+           05  PIXEL-COLOR-R       PIC 9V9(6) COMP-3.  *> Red component (0.0-1.0)
+           05  PIXEL-COLOR-G       PIC 9V9(6) COMP-3.  *> Green component (0.0-1.0)
+           05  PIXEL-COLOR-B       PIC 9V9(6) COMP-3.  *> Blue component (0.0-1.0)
+           
+      * Color output working variables
+       01  COLOR-WORK-VARS.
+           05  COLOR-R-BYTE        PIC 9(3).            *> Red byte value (0-255)
+           05  COLOR-G-BYTE        PIC 9(3).            *> Green byte value (0-255)  
+           05  COLOR-B-BYTE        PIC 9(3).            *> Blue byte value (0-255)
+           05  COLOR-OUTPUT-LINE   PIC X(20).           *> Formatted color output
        
        PROCEDURE DIVISION.
       *****************************************************************
@@ -146,23 +166,17 @@
        
       * Calculate RGB values for current pixel position
        CALCULATE-PIXEL-COLOR.
-      * Normalize coordinates to 0.0-1.0 range
-           COMPUTE TEMP-R = I / WIDTH-MINUS-1     *> Red increases left to right
-           COMPUTE TEMP-G = J / HEIGHT-MINUS-1    *> Green increases top to bottom
-           MOVE TEMP-R TO R
-           MOVE TEMP-G TO G
-           
-      * Convert floating-point colors to integer RGB (0-255)
-           COMPUTE IR = COLOR-MULTIPLIER * R      *> Red component (0-255)
-           COMPUTE IG = COLOR-MULTIPLIER * G      *> Green component (0-255)
-           COMPUTE IB = COLOR-MULTIPLIER * B.     *> Blue component (always 0)
+      * Create pixel color equivalent to: 
+      * auto pixel_color = color(double(i)/(image_width-1), double(j)/(image_height-1), 0);
+           COMPUTE VEC3-TEMP-X = I / WIDTH-MINUS-1     *> Red component (0.0-1.0)
+           COMPUTE VEC3-TEMP-Y = J / HEIGHT-MINUS-1    *> Green component (0.0-1.0)  
+           MOVE 0 TO VEC3-TEMP-Z                       *> Blue component (always 0)
+           PERFORM COLOR-INIT-RGB.                    *> Initialize PIXEL-COLOR with these values
        
-      * Write pixel RGB values to PPM file
+      * Write pixel color to PPM file using write_color function
        OUTPUT-PIXEL.
-           STRING IR " " IG " " IB          *> Format: "R G B"
-                  DELIMITED BY SIZE INTO OUTPUT-LINE
-           MOVE OUTPUT-LINE TO OUTPUT-RECORD
-           WRITE OUTPUT-RECORD.                *> Write pixel data to file
+      * Equivalent to: write_color(std::cout, pixel_color);
+           PERFORM WRITE-COLOR-TO-FILE.
        
       * Display rendering progress to terminal
        DISPLAY-PROGRESS.
@@ -295,16 +309,19 @@
            COMPUTE VEC3-LENGTH = VEC3-LENGTH-SQR ** 0.5.
            
       * Dot product: VEC3-DOT-PRODUCT = VEC3-A • VEC3-B
-       VEC3-DOT-PRODUCT.
+       VEC3-CALCULATE-DOT-PRODUCT.
            COMPUTE VEC3-DOT-PRODUCT = (VEC3-A-X * VEC3-B-X) +
                                       (VEC3-A-Y * VEC3-B-Y) +
                                       (VEC3-A-Z * VEC3-B-Z).
                                       
       * Cross product: VEC3-RESULT = VEC3-A × VEC3-B
        VEC3-CROSS-PRODUCT.
-           COMPUTE VEC3-RESULT-X = (VEC3-A-Y * VEC3-B-Z) - (VEC3-A-Z * VEC3-B-Y)
-           COMPUTE VEC3-RESULT-Y = (VEC3-A-Z * VEC3-B-X) - (VEC3-A-X * VEC3-B-Z)
-           COMPUTE VEC3-RESULT-Z = (VEC3-A-X * VEC3-B-Y) - (VEC3-A-Y * VEC3-B-X).
+           COMPUTE VEC3-RESULT-X = (VEC3-A-Y * VEC3-B-Z) - 
+                                   (VEC3-A-Z * VEC3-B-Y)
+           COMPUTE VEC3-RESULT-Y = (VEC3-A-Z * VEC3-B-X) - 
+                                   (VEC3-A-X * VEC3-B-Z)
+           COMPUTE VEC3-RESULT-Z = (VEC3-A-X * VEC3-B-Y) - 
+                                   (VEC3-A-Y * VEC3-B-X).
            
       * Unit vector: VEC3-RESULT = VEC3-A / |VEC3-A|
        VEC3-UNIT-VECTOR-A.
@@ -319,19 +336,81 @@
       * Output/Display procedures (equivalent to ostream operator)
       * Display VEC3-A components to terminal
        VEC3-DISPLAY-A.
-           STRING VEC3-A-X " " VEC3-A-Y " " VEC3-A-Z
+           MOVE VEC3-A-X TO VEC3-DISPLAY-X
+           MOVE VEC3-A-Y TO VEC3-DISPLAY-Y
+           MOVE VEC3-A-Z TO VEC3-DISPLAY-Z
+           STRING VEC3-DISPLAY-X " " VEC3-DISPLAY-Y " " VEC3-DISPLAY-Z
                   DELIMITED BY SIZE INTO VEC3-OUTPUT-LINE
            DISPLAY VEC3-OUTPUT-LINE.
            
       * Display VEC3-RESULT components to terminal  
        VEC3-DISPLAY-RESULT.
-           STRING VEC3-RESULT-X " " VEC3-RESULT-Y " " VEC3-RESULT-Z
+           MOVE VEC3-RESULT-X TO VEC3-DISPLAY-X
+           MOVE VEC3-RESULT-Y TO VEC3-DISPLAY-Y
+           MOVE VEC3-RESULT-Z TO VEC3-DISPLAY-Z
+           STRING VEC3-DISPLAY-X " " VEC3-DISPLAY-Y " " VEC3-DISPLAY-Z
                   DELIMITED BY SIZE INTO VEC3-OUTPUT-LINE
            DISPLAY VEC3-OUTPUT-LINE.
            
       * Write VEC3-A components to file
        VEC3-WRITE-A-TO-FILE.
-           STRING VEC3-A-X " " VEC3-A-Y " " VEC3-A-Z
+           MOVE VEC3-A-X TO VEC3-DISPLAY-X
+           MOVE VEC3-A-Y TO VEC3-DISPLAY-Y
+           MOVE VEC3-A-Z TO VEC3-DISPLAY-Z
+           STRING VEC3-DISPLAY-X " " VEC3-DISPLAY-Y " " VEC3-DISPLAY-Z
                   DELIMITED BY SIZE INTO VEC3-OUTPUT-LINE
            MOVE VEC3-OUTPUT-LINE TO OUTPUT-RECORD
            WRITE OUTPUT-RECORD.
+           
+      *****************************************************************
+      * COLOR PROCEDURES - Color Output Support                      *
+      *****************************************************************
+      
+      * Write color to output stream (equivalent to write_color function)
+      * Input: PIXEL-COLOR contains color components (0.0-1.0)
+      * Output: Writes RGB bytes to file
+       WRITE-COLOR-TO-FILE.
+      * Get RGB components from pixel color (equivalent to pixel_color.x(), y(), z())
+           MOVE PIXEL-COLOR-R TO TEMP-R
+           MOVE PIXEL-COLOR-G TO TEMP-G
+           MOVE PIXEL-COLOR-B TO B
+           
+      * Translate [0,1] component values to byte range [0,255]
+           COMPUTE COLOR-R-BYTE = 255.999 * TEMP-R    *> rbyte = int(255.999 * r)
+           COMPUTE COLOR-G-BYTE = 255.999 * TEMP-G    *> gbyte = int(255.999 * g)  
+           COMPUTE COLOR-B-BYTE = 255.999 * B         *> bbyte = int(255.999 * b)
+           
+      * Write out the pixel color components
+           STRING COLOR-R-BYTE " " COLOR-G-BYTE " " COLOR-B-BYTE
+                  DELIMITED BY SIZE INTO COLOR-OUTPUT-LINE
+           MOVE COLOR-OUTPUT-LINE TO OUTPUT-RECORD
+           WRITE OUTPUT-RECORD.
+           
+      * Write color to terminal (for debugging/display)
+       WRITE-COLOR-TO-TERMINAL.
+      * Get RGB components and convert to bytes
+           MOVE PIXEL-COLOR-R TO TEMP-R
+           MOVE PIXEL-COLOR-G TO TEMP-G
+           MOVE PIXEL-COLOR-B TO B
+           
+           COMPUTE COLOR-R-BYTE = 255.999 * TEMP-R
+           COMPUTE COLOR-G-BYTE = 255.999 * TEMP-G
+           COMPUTE COLOR-B-BYTE = 255.999 * B
+           
+      * Display color components
+           STRING COLOR-R-BYTE " " COLOR-G-BYTE " " COLOR-B-BYTE
+                  DELIMITED BY SIZE INTO COLOR-OUTPUT-LINE
+           DISPLAY COLOR-OUTPUT-LINE.
+           
+      * Initialize color from vec3 (copy VEC3-A to PIXEL-COLOR)
+       COLOR-FROM-VEC3-A.
+           MOVE VEC3-A-X TO PIXEL-COLOR-R
+           MOVE VEC3-A-Y TO PIXEL-COLOR-G
+           MOVE VEC3-A-Z TO PIXEL-COLOR-B.
+           
+      * Initialize color with specific RGB values
+      * Input: Set values in VEC3-TEMP before calling
+       COLOR-INIT-RGB.
+           MOVE VEC3-TEMP-X TO PIXEL-COLOR-R
+           MOVE VEC3-TEMP-Y TO PIXEL-COLOR-G
+           MOVE VEC3-TEMP-Z TO PIXEL-COLOR-B.
