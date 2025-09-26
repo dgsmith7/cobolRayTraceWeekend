@@ -20,9 +20,9 @@
        01  OUTPUT-RECORD           PIC X(80).  *> 80-char output record
        
        WORKING-STORAGE SECTION.
-      * Image dimensions and PPM format constants
-       01  IMAGE-WIDTH             PIC 9(3) VALUE 256.  *> Image width in pixels
-       01  IMAGE-HEIGHT            PIC 9(3) VALUE 256.  *> Image height in pixels
+      * Image dimensions and PPM format constants  
+       01  IMAGE-WIDTH             PIC 9(3) VALUE 400.  *> Image width in pixels (updated from tutorial)
+       01  IMAGE-HEIGHT            PIC 9(3).            *> Image height (calculated from aspect ratio)
        01  MAX-COLOR-VALUE         PIC 9(3) VALUE 255.  *> Max RGB value for PPM
        
       * Loop iteration variables
@@ -113,6 +113,90 @@
            05  COLOR-B-BYTE        PIC 9(3).            *> Blue byte value (0-255)
            05  COLOR-OUTPUT-LINE   PIC X(20).           *> Formatted color output
        
+      *****************************************************************
+      * RAY DATA STRUCTURES - 3D Ray Support (ray = origin + t*dir)  *
+      *****************************************************************
+      * Ray structure (equivalent to ray class with origin and direction)
+       01  RAY-DATA.                           *> Primary ray structure
+           05  RAY-ORIGIN.                     *> Ray origin point (point3)
+               10  RAY-ORIGIN-X    PIC S9V9(6) COMP-3.  *> Origin X coordinate
+               10  RAY-ORIGIN-Y    PIC S9V9(6) COMP-3.  *> Origin Y coordinate
+               10  RAY-ORIGIN-Z    PIC S9V9(6) COMP-3.  *> Origin Z coordinate
+           05  RAY-DIRECTION.                  *> Ray direction vector (vec3)
+               10  RAY-DIR-X       PIC S9V9(6) COMP-3.  *> Direction X component
+               10  RAY-DIR-Y       PIC S9V9(6) COMP-3.  *> Direction Y component
+               10  RAY-DIR-Z       PIC S9V9(6) COMP-3.  *> Direction Z component
+               
+      * Secondary ray for calculations (equivalent to multiple ray objects)
+       01  RAY-TEMP.                          *> Temporary ray structure
+           05  RAY-TEMP-ORIGIN.               *> Temporary origin point
+               10  RAY-TEMP-ORIG-X PIC S9V9(6) COMP-3.  *> Temp origin X
+               10  RAY-TEMP-ORIG-Y PIC S9V9(6) COMP-3.  *> Temp origin Y
+               10  RAY-TEMP-ORIG-Z PIC S9V9(6) COMP-3.  *> Temp origin Z
+           05  RAY-TEMP-DIRECTION.            *> Temporary direction vector
+               10  RAY-TEMP-DIR-X  PIC S9V9(6) COMP-3.  *> Temp direction X
+               10  RAY-TEMP-DIR-Y  PIC S9V9(6) COMP-3.  *> Temp direction Y
+               10  RAY-TEMP-DIR-Z  PIC S9V9(6) COMP-3.  *> Temp direction Z
+               
+      * Ray calculation working variables
+       01  RAY-WORK-VARS.
+           05  RAY-PARAMETER-T     PIC S9V9(6) COMP-3.  *> Ray parameter t
+           05  RAY-POINT-X         PIC S9V9(6) COMP-3.  *> Calculated point X
+           05  RAY-POINT-Y         PIC S9V9(6) COMP-3.  *> Calculated point Y
+           05  RAY-POINT-Z         PIC S9V9(6) COMP-3.  *> Calculated point Z
+           
+      *****************************************************************
+      * CAMERA DATA STRUCTURES - 3D Camera and Viewport Support       *
+      *****************************************************************
+      * Camera parameters (equivalent to camera setup variables)
+       01  CAMERA-PARAMS.
+           05  ASPECT-RATIO        PIC 9V9(6) COMP-3 VALUE 1.777777.  *> 16/9 aspect ratio
+           05  FOCAL-LENGTH        PIC 9V9(6) COMP-3 VALUE 1.0.      *> Camera focal length
+           05  VIEWPORT-HEIGHT     PIC 9V9(6) COMP-3 VALUE 2.0.      *> Viewport height
+           05  VIEWPORT-WIDTH      PIC 9V9(6) COMP-3.                *> Calculated viewport width
+           
+      * Camera center point (equivalent to camera_center)
+       01  CAMERA-CENTER.
+           05  CAMERA-CENTER-X     PIC S9V9(6) COMP-3 VALUE 0.0.     *> Camera X position
+           05  CAMERA-CENTER-Y     PIC S9V9(6) COMP-3 VALUE 0.0.     *> Camera Y position
+           05  CAMERA-CENTER-Z     PIC S9V9(6) COMP-3 VALUE 0.0.     *> Camera Z position
+           
+      * Viewport vectors (equivalent to viewport_u, viewport_v)
+       01  VIEWPORT-VECTORS.
+           05  VIEWPORT-U-X        PIC S9V9(6) COMP-3.               *> U vector X component
+           05  VIEWPORT-U-Y        PIC S9V9(6) COMP-3 VALUE 0.0.     *> U vector Y component
+           05  VIEWPORT-U-Z        PIC S9V9(6) COMP-3 VALUE 0.0.     *> U vector Z component
+           05  VIEWPORT-V-X        PIC S9V9(6) COMP-3 VALUE 0.0.     *> V vector X component
+           05  VIEWPORT-V-Y        PIC S9V9(6) COMP-3.               *> V vector Y component
+           05  VIEWPORT-V-Z        PIC S9V9(6) COMP-3 VALUE 0.0.     *> V vector Z component
+               
+      * Pixel delta vectors (equivalent to pixel_delta_u, pixel_delta_v)
+       01  PIXEL-DELTAS.
+           05  PIXEL-DELTA-U-X     PIC S9V9(6) COMP-3.               *> Delta U X component
+           05  PIXEL-DELTA-U-Y     PIC S9V9(6) COMP-3.               *> Delta U Y component
+           05  PIXEL-DELTA-U-Z     PIC S9V9(6) COMP-3.               *> Delta U Z component
+           05  PIXEL-DELTA-V-X     PIC S9V9(6) COMP-3.               *> Delta V X component
+           05  PIXEL-DELTA-V-Y     PIC S9V9(6) COMP-3.               *> Delta V Y component
+           05  PIXEL-DELTA-V-Z     PIC S9V9(6) COMP-3.               *> Delta V Z component
+               
+      * Viewport positioning (equivalent to viewport_upper_left, pixel00_loc)
+       01  VIEWPORT-POSITIONS.
+           05  VIEWPORT-UL-X       PIC S9V9(6) COMP-3.               *> Upper left X
+           05  VIEWPORT-UL-Y       PIC S9V9(6) COMP-3.               *> Upper left Y
+           05  VIEWPORT-UL-Z       PIC S9V9(6) COMP-3.               *> Upper left Z
+           05  PIXEL00-X           PIC S9V9(6) COMP-3.               *> Pixel (0,0) X
+           05  PIXEL00-Y           PIC S9V9(6) COMP-3.               *> Pixel (0,0) Y
+           05  PIXEL00-Z           PIC S9V9(6) COMP-3.               *> Pixel (0,0) Z
+               
+      * Current pixel calculations
+       01  PIXEL-CALCULATIONS.
+           05  PIXEL-CENTER-X      PIC S9V9(6) COMP-3.               *> Pixel center X
+           05  PIXEL-CENTER-Y      PIC S9V9(6) COMP-3.               *> Pixel center Y
+           05  PIXEL-CENTER-Z      PIC S9V9(6) COMP-3.               *> Pixel center Z
+           05  RAY-DIR-CALC-X      PIC S9V9(6) COMP-3.               *> Ray direction X
+           05  RAY-DIR-CALC-Y      PIC S9V9(6) COMP-3.               *> Ray direction Y
+           05  RAY-DIR-CALC-Z      PIC S9V9(6) COMP-3.               *> Ray direction Z
+       
        PROCEDURE DIVISION.
       *****************************************************************
       * Main program execution flow                                  *
@@ -133,8 +217,60 @@
        CLOSE-OUTPUT-FILE.
            CLOSE OUTPUT-FILE.           *> Close and finalize file
        
-      * Initialize constants for gradient calculations
+      * Initialize camera system and image parameters
        INITIALIZE-VALUES.
+      * Calculate image height from aspect ratio (16:9)
+      * Ensure height is at least 1 pixel
+           COMPUTE IMAGE-HEIGHT = IMAGE-WIDTH / ASPECT-RATIO
+           IF IMAGE-HEIGHT < 1
+               MOVE 1 TO IMAGE-HEIGHT
+           END-IF
+           
+      * Calculate viewport width from height and image aspect ratio
+           COMPUTE VIEWPORT-WIDTH = VIEWPORT-HEIGHT * 
+                                   (IMAGE-WIDTH / IMAGE-HEIGHT)
+                                   
+      * Set up viewport vectors
+      * viewport_u = vec3(viewport_width, 0, 0)
+           MOVE VIEWPORT-WIDTH TO VIEWPORT-U-X
+           MOVE 0 TO VIEWPORT-U-Y
+           MOVE 0 TO VIEWPORT-U-Z
+           
+      * viewport_v = vec3(0, -viewport_height, 0) 
+           MOVE 0 TO VIEWPORT-V-X
+           COMPUTE VIEWPORT-V-Y = -VIEWPORT-HEIGHT  *> Negative for screen coordinates
+           MOVE 0 TO VIEWPORT-V-Z
+           
+      * Calculate pixel delta vectors (spacing between pixels)
+      * pixel_delta_u = viewport_u / image_width
+           COMPUTE PIXEL-DELTA-U-X = VIEWPORT-U-X / IMAGE-WIDTH
+           COMPUTE PIXEL-DELTA-U-Y = VIEWPORT-U-Y / IMAGE-WIDTH  
+           COMPUTE PIXEL-DELTA-U-Z = VIEWPORT-U-Z / IMAGE-WIDTH
+           
+      * pixel_delta_v = viewport_v / image_height
+           COMPUTE PIXEL-DELTA-V-X = VIEWPORT-V-X / IMAGE-HEIGHT
+           COMPUTE PIXEL-DELTA-V-Y = VIEWPORT-V-Y / IMAGE-HEIGHT
+           COMPUTE PIXEL-DELTA-V-Z = VIEWPORT-V-Z / IMAGE-HEIGHT
+           
+      * Calculate viewport upper left corner
+      * viewport_upper_left = camera_center - vec3(0,0,focal_length) - viewport_u/2 - viewport_v/2
+           COMPUTE VIEWPORT-UL-X = CAMERA-CENTER-X - 0 - 
+                  (VIEWPORT-U-X / 2) - (VIEWPORT-V-X / 2)
+           COMPUTE VIEWPORT-UL-Y = CAMERA-CENTER-Y - 0 - 
+                  (VIEWPORT-U-Y / 2) - (VIEWPORT-V-Y / 2)
+           COMPUTE VIEWPORT-UL-Z = CAMERA-CENTER-Z - FOCAL-LENGTH - 
+                  (VIEWPORT-U-Z / 2) - (VIEWPORT-V-Z / 2)
+           
+      * Calculate pixel (0,0) location 
+      * pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v)
+           COMPUTE PIXEL00-X = VIEWPORT-UL-X + 
+                  0.5 * (PIXEL-DELTA-U-X + PIXEL-DELTA-V-X)
+           COMPUTE PIXEL00-Y = VIEWPORT-UL-Y + 
+                  0.5 * (PIXEL-DELTA-U-Y + PIXEL-DELTA-V-Y)
+           COMPUTE PIXEL00-Z = VIEWPORT-UL-Z + 
+                  0.5 * (PIXEL-DELTA-U-Z + PIXEL-DELTA-V-Z)
+           
+      * Legacy calculations for compatibility
            COMPUTE WIDTH-MINUS-1 = IMAGE-WIDTH - 1   *> For normalizing X coords
            COMPUTE HEIGHT-MINUS-1 = IMAGE-HEIGHT - 1. *> For normalizing Y coords
        
@@ -165,14 +301,39 @@
            END-PERFORM
            PERFORM DISPLAY-COMPLETION.      *> Show completion message
        
-      * Calculate RGB values for current pixel position
+      * Calculate RGB values for current pixel using ray tracing
        CALCULATE-PIXEL-COLOR.
-      * Create pixel color equivalent to: 
-      * auto pixel_color = color(double(i)/(image_width-1), double(j)/(image_height-1), 0);
-           COMPUTE VEC3-TEMP-X = I / WIDTH-MINUS-1     *> Red component (0.0-1.0)
-           COMPUTE VEC3-TEMP-Y = J / HEIGHT-MINUS-1    *> Green component (0.0-1.0)  
-           MOVE 0 TO VEC3-TEMP-Z                       *> Blue component (always 0)
-           PERFORM COLOR-INIT-RGB.                    *> Initialize PIXEL-COLOR with these values
+      * Calculate pixel center in 3D space
+      * pixel_center = pixel00_loc + (i * pixel_delta_u) + (j * pixel_delta_v)
+           COMPUTE PIXEL-CENTER-X = PIXEL00-X + 
+                  (I * PIXEL-DELTA-U-X) + (J * PIXEL-DELTA-V-X)
+           COMPUTE PIXEL-CENTER-Y = PIXEL00-Y + 
+                  (I * PIXEL-DELTA-U-Y) + (J * PIXEL-DELTA-V-Y)
+           COMPUTE PIXEL-CENTER-Z = PIXEL00-Z + 
+                  (I * PIXEL-DELTA-U-Z) + (J * PIXEL-DELTA-V-Z)
+           
+      * Calculate ray direction from camera center to pixel center
+      * ray_direction = pixel_center - camera_center
+           COMPUTE RAY-DIR-CALC-X = PIXEL-CENTER-X - CAMERA-CENTER-X
+           COMPUTE RAY-DIR-CALC-Y = PIXEL-CENTER-Y - CAMERA-CENTER-Y
+           COMPUTE RAY-DIR-CALC-Z = PIXEL-CENTER-Z - CAMERA-CENTER-Z
+           
+      * Set up ray with camera center as origin and calculated direction
+      * ray r(camera_center, ray_direction)
+           MOVE CAMERA-CENTER-X TO VEC3-A-X    *> Origin = camera center
+           MOVE CAMERA-CENTER-Y TO VEC3-A-Y
+           MOVE CAMERA-CENTER-Z TO VEC3-A-Z
+           MOVE RAY-DIR-CALC-X TO VEC3-B-X      *> Direction = calculated direction
+           MOVE RAY-DIR-CALC-Y TO VEC3-B-Y
+           MOVE RAY-DIR-CALC-Z TO VEC3-B-Z
+           PERFORM RAY-CONSTRUCT-WITH-PARAMS    *> Create the ray
+           
+      * Get pixel color using ray_color function
+      * color pixel_color = ray_color(r)
+           PERFORM RAY-COLOR-FUNCTION           *> Calculate color for this ray
+           
+      * Result is now in PIXEL-COLOR, ready for output
+           EXIT.
        
       * Write pixel color to PPM file using write_color function
        OUTPUT-PIXEL.
@@ -439,3 +600,121 @@
            MOVE VEC3-TEMP-X TO PIXEL-COLOR-R   *> Set red component
            MOVE VEC3-TEMP-Y TO PIXEL-COLOR-G   *> Set green component
            MOVE VEC3-TEMP-Z TO PIXEL-COLOR-B.  *> Set blue component
+           
+      *****************************************************************
+      * RAY CLASS IMPLEMENTATION - 3D Ray Operations                 *
+      *****************************************************************
+      * Ray constructor procedures (equivalent to ray constructors)  *
+      *****************************************************************
+      
+      *> Default ray constructor - creates ray at origin with no direction
+      *> C++ equivalent: ray()
+       RAY-CONSTRUCT-DEFAULT.
+           MOVE ZEROS TO RAY-ORIGIN-X RAY-ORIGIN-Y RAY-ORIGIN-Z
+           MOVE ZEROS TO RAY-DIR-X RAY-DIR-Y RAY-DIR-Z.
+           
+      *> Ray constructor with origin and direction parameters
+      *> C++ equivalent: ray(const point3& origin, const vec3& direction)
+      *> Input: VEC3-A contains origin, VEC3-B contains direction
+       RAY-CONSTRUCT-WITH-PARAMS.
+           MOVE VEC3-A-X TO RAY-ORIGIN-X
+           MOVE VEC3-A-Y TO RAY-ORIGIN-Y
+           MOVE VEC3-A-Z TO RAY-ORIGIN-Z
+           MOVE VEC3-B-X TO RAY-DIR-X
+           MOVE VEC3-B-Y TO RAY-DIR-Y
+           MOVE VEC3-B-Z TO RAY-DIR-Z.
+           
+      *****************************************************************
+      * Ray accessor methods (equivalent to public member functions) *
+      *****************************************************************
+      
+      *> Get ray origin - returns origin point in VEC3-RESULT
+      *> C++ equivalent: const point3& origin() const
+       RAY-GET-ORIGIN.
+           MOVE RAY-ORIGIN-X TO VEC3-RESULT-X
+           MOVE RAY-ORIGIN-Y TO VEC3-RESULT-Y
+           MOVE RAY-ORIGIN-Z TO VEC3-RESULT-Z.
+           
+      *> Get ray direction - returns direction vector in VEC3-RESULT
+      *> C++ equivalent: const vec3& direction() const
+       RAY-GET-DIRECTION.
+           MOVE RAY-DIR-X TO VEC3-RESULT-X
+           MOVE RAY-DIR-Y TO VEC3-RESULT-Y
+           MOVE RAY-DIR-Z TO VEC3-RESULT-Z.
+           
+      *****************************************************************
+      * Ray calculation methods                                       *
+      *****************************************************************
+      
+      *> Calculate point along ray at parameter t
+      *> Formula: point = origin + t * direction
+      *> C++ equivalent: point3 at(double t) const
+      *> Input: RAY-PARAMETER-T contains the parameter t
+      *> Output: Result stored in RAY-POINT-X, RAY-POINT-Y, RAY-POINT-Z
+       RAY-AT-PARAMETER.
+      *    Calculate t * direction for each component, then add origin
+           COMPUTE RAY-POINT-X = RAY-ORIGIN-X + 
+                                (RAY-PARAMETER-T * RAY-DIR-X)
+           COMPUTE RAY-POINT-Y = RAY-ORIGIN-Y + 
+                                (RAY-PARAMETER-T * RAY-DIR-Y)
+           COMPUTE RAY-POINT-Z = RAY-ORIGIN-Z + 
+                                (RAY-PARAMETER-T * RAY-DIR-Z).
+           
+      *> Calculate point along ray and store result in VEC3-RESULT
+      *> Same as RAY-AT-PARAMETER but returns result in standard location
+      *> Input: RAY-PARAMETER-T contains the parameter t
+      *> Output: Result stored in VEC3-RESULT-X, VEC3-RESULT-Y, VEC3-RESULT-Z
+       RAY-AT-PARAMETER-TO-VEC3.
+           PERFORM RAY-AT-PARAMETER
+           MOVE RAY-POINT-X TO VEC3-RESULT-X
+           MOVE RAY-POINT-Y TO VEC3-RESULT-Y
+           MOVE RAY-POINT-Z TO VEC3-RESULT-Z.
+           
+      *****************************************************************
+      * RAY COLOR FUNCTION - Ray Tracing Color Calculation           *
+      *****************************************************************
+      
+      *> Calculate color for a given ray (equivalent to ray_color function)
+      *> C++ equivalent: color ray_color(const ray& r)
+      *> Input: RAY-DATA contains the ray to process
+      *> Output: PIXEL-COLOR contains the calculated color
+      *> Creates sky gradient from white (horizon) to blue (zenith)
+       RAY-COLOR-FUNCTION.
+      * Get the ray direction and normalize it to unit vector
+      * vec3 unit_direction = unit_vector(r.direction());
+           MOVE RAY-DIR-X TO VEC3-A-X          *> Copy ray direction to VEC3-A
+           MOVE RAY-DIR-Y TO VEC3-A-Y
+           MOVE RAY-DIR-Z TO VEC3-A-Z
+           PERFORM VEC3-UNIT-VECTOR-A          *> Calculate unit vector (result in VEC3-RESULT)
+           
+      * Calculate interpolation parameter based on Y component
+      * auto a = 0.5*(unit_direction.y() + 1.0);
+      * This maps Y from [-1,1] to a from [0,1]
+           COMPUTE VEC3-SCALAR = 0.5 * (VEC3-RESULT-Y + 1.0)
+           
+      * Linear interpolation between white and light blue
+      * return (1.0-a)*color(1.0, 1.0, 1.0) + a*color(0.5, 0.7, 1.0);
+      * White color when a=0 (Y=-1, looking down)
+      * Blue color when a=1 (Y=+1, looking up)
+      
+      * Calculate (1.0-a) for white component weight
+           COMPUTE VEC3-TEMP-CALC = 1.0 - VEC3-SCALAR
+           
+      * Calculate final color components using linear interpolation
+      * Red:   (1-a)*1.0 + a*0.5 = (1-a) + 0.5*a
+           COMPUTE PIXEL-COLOR-R = VEC3-TEMP-CALC * 1.0 + 
+                                   VEC3-SCALAR * 0.5
+           
+      * Green: (1-a)*1.0 + a*0.7 = (1-a) + 0.7*a  
+           COMPUTE PIXEL-COLOR-G = VEC3-TEMP-CALC * 1.0 + 
+                                   VEC3-SCALAR * 0.7
+           
+      * Blue:  (1-a)*1.0 + a*1.0 = (1-a) + a = 1.0 (always full blue)
+           COMPUTE PIXEL-COLOR-B = VEC3-TEMP-CALC * 1.0 + 
+                                   VEC3-SCALAR * 1.0.
+           
+      * Result: Creates realistic sky gradient
+      * - Looking down (Y=-1): White color (1.0, 1.0, 1.0) - horizon
+      * - Looking up (Y=+1):   Light blue (0.5, 0.7, 1.0) - zenith
+      * - Looking horizontal (Y=0): Blend of both colors
+           EXIT.
