@@ -11,6 +11,6 @@ What else I have observed that is a departure from my usual JS/TS and Python cod
 
 Additionally, COBOL is a compiled language, so there is a compilation step before running the code. Also, Cobol is strongly typed, so all variables must be declared with their types before use.
 
-I am also harnessing Github Copilot with Claude Sonnet 4 as an AI assistant.
+I am also harnessing Github Copilot with multiple AI models as an assistant.
 
-View resulting "ppm" images in Preview on Mac. GIMP should work on Linux (and probably on Windows). I am othewise unsure about viewing ppm files on Windows.
+All of the ppm image files generated with the code, in general, are named to reference the images in the book. View resulting "ppm" images in Preview on Mac. GIMP should work on Linux (and probably on Windows). I am othewise unsure about viewing ppm files on Windows.
