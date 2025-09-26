@@ -196,6 +196,27 @@
            05  RAY-DIR-CALC-X      PIC S9V9(6) COMP-3.               *> Ray direction X
            05  RAY-DIR-CALC-Y      PIC S9V9(6) COMP-3.               *> Ray direction Y
            05  RAY-DIR-CALC-Z      PIC S9V9(6) COMP-3.               *> Ray direction Z
+           
+      *****************************************************************
+      * SPHERE INTERSECTION DATA - Ray-Sphere Collision Detection      *
+      *****************************************************************
+      * Sphere parameters for intersection testing
+       01  SPHERE-DATA.
+           05  SPHERE-CENTER-X     PIC S9V9(6) COMP-3.               *> Sphere center X
+           05  SPHERE-CENTER-Y     PIC S9V9(6) COMP-3.               *> Sphere center Y
+           05  SPHERE-CENTER-Z     PIC S9V9(6) COMP-3.               *> Sphere center Z
+           05  SPHERE-RADIUS       PIC 9V9(6) COMP-3.                *> Sphere radius
+           
+      * Ray-sphere intersection working variables
+       01  SPHERE-INTERSECTION-VARS.
+           05  SPHERE-OC-X         PIC S9V9(6) COMP-3.               *> Origin to center X
+           05  SPHERE-OC-Y         PIC S9V9(6) COMP-3.               *> Origin to center Y
+           05  SPHERE-OC-Z         PIC S9V9(6) COMP-3.               *> Origin to center Z
+           05  SPHERE-A            PIC 9V9(6) COMP-3.                *> Quadratic coefficient a
+           05  SPHERE-B            PIC S9V9(6) COMP-3.               *> Quadratic coefficient b
+           05  SPHERE-C            PIC 9V9(6) COMP-3.                *> Quadratic coefficient c
+           05  SPHERE-DISCRIMINANT PIC S9V9(6) COMP-3.               *> b²-4ac discriminant
+           05  SPHERE-HIT-FLAG     PIC 9 VALUE 0.                    *> 1=hit, 0=miss
        
        PROCEDURE DIVISION.
       *****************************************************************
@@ -671,6 +692,52 @@
            MOVE RAY-POINT-Z TO VEC3-RESULT-Z.
            
       *****************************************************************
+      * SPHERE INTERSECTION FUNCTION - Ray-Sphere Collision Detection  *
+      *****************************************************************
+      
+      *> Test if ray intersects sphere (equivalent to hit_sphere function)
+      *> C++ equivalent: bool hit_sphere(const point3& center, double radius, const ray& r)
+      *> Input: SPHERE-CENTER-X/Y/Z contains sphere center
+      *>        SPHERE-RADIUS contains sphere radius
+      *>        RAY-DATA contains the ray to test
+      *> Output: SPHERE-HIT-FLAG = 1 if hit, 0 if miss
+       HIT-SPHERE.
+      * Calculate vector from ray origin to sphere center
+      * vec3 oc = center - r.origin()
+           COMPUTE SPHERE-OC-X = SPHERE-CENTER-X - RAY-ORIGIN-X
+           COMPUTE SPHERE-OC-Y = SPHERE-CENTER-Y - RAY-ORIGIN-Y
+           COMPUTE SPHERE-OC-Z = SPHERE-CENTER-Z - RAY-ORIGIN-Z
+           
+      * Calculate quadratic equation coefficients
+      * auto a = dot(r.direction(), r.direction())
+           COMPUTE SPHERE-A = (RAY-DIR-X * RAY-DIR-X) +
+                              (RAY-DIR-Y * RAY-DIR-Y) +
+                              (RAY-DIR-Z * RAY-DIR-Z)
+                              
+      * auto b = -2.0 * dot(r.direction(), oc)
+           COMPUTE SPHERE-B = -2.0 * ((RAY-DIR-X * SPHERE-OC-X) +
+                                      (RAY-DIR-Y * SPHERE-OC-Y) +
+                                      (RAY-DIR-Z * SPHERE-OC-Z))
+                                      
+      * auto c = dot(oc, oc) - radius*radius
+           COMPUTE SPHERE-C = (SPHERE-OC-X * SPHERE-OC-X) +
+                              (SPHERE-OC-Y * SPHERE-OC-Y) +
+                              (SPHERE-OC-Z * SPHERE-OC-Z) -
+                              (SPHERE-RADIUS * SPHERE-RADIUS)
+                              
+      * Calculate discriminant: b*b - 4*a*c
+           COMPUTE SPHERE-DISCRIMINANT = (SPHERE-B * SPHERE-B) -
+                                         (4 * SPHERE-A * SPHERE-C)
+                                         
+      * Return true if discriminant >= 0 (ray hits sphere)
+           IF SPHERE-DISCRIMINANT >= 0
+               MOVE 1 TO SPHERE-HIT-FLAG        *> Hit detected
+           ELSE
+               MOVE 0 TO SPHERE-HIT-FLAG        *> Miss
+           END-IF
+           EXIT.
+           
+      *****************************************************************
       * RAY COLOR FUNCTION - Ray Tracing Color Calculation           *
       *****************************************************************
       
@@ -678,43 +745,58 @@
       *> C++ equivalent: color ray_color(const ray& r)
       *> Input: RAY-DATA contains the ray to process
       *> Output: PIXEL-COLOR contains the calculated color
-      *> Creates sky gradient from white (horizon) to blue (zenith)
+      *> Renders red sphere at (0,0,-1) with radius 0.5, otherwise sky gradient
        RAY-COLOR-FUNCTION.
+      * Test for sphere intersection at point3(0,0,-1) with radius 0.5
+      * if (hit_sphere(point3(0,0,-1), 0.5, r)) return color(1, 0, 0);
+           MOVE 0.0 TO SPHERE-CENTER-X           *> Sphere at origin X
+           MOVE 0.0 TO SPHERE-CENTER-Y           *> Sphere at origin Y
+           MOVE -1.0 TO SPHERE-CENTER-Z          *> Sphere at Z = -1 (in front of camera)
+           MOVE 0.5 TO SPHERE-RADIUS             *> Sphere radius = 0.5
+           PERFORM HIT-SPHERE                    *> Test ray-sphere intersection
+           
+      * If ray hits sphere, return red color
+           IF SPHERE-HIT-FLAG = 1
+               MOVE 1.0 TO PIXEL-COLOR-R         *> Red sphere
+               MOVE 0.0 TO PIXEL-COLOR-G         *> No green
+               MOVE 0.0 TO PIXEL-COLOR-B         *> No blue
+           ELSE
+      * Otherwise render sky gradient (existing code)
       * Get the ray direction and normalize it to unit vector
       * vec3 unit_direction = unit_vector(r.direction());
-           MOVE RAY-DIR-X TO VEC3-A-X          *> Copy ray direction to VEC3-A
-           MOVE RAY-DIR-Y TO VEC3-A-Y
-           MOVE RAY-DIR-Z TO VEC3-A-Z
-           PERFORM VEC3-UNIT-VECTOR-A          *> Calculate unit vector (result in VEC3-RESULT)
-           
+               MOVE RAY-DIR-X TO VEC3-A-X        *> Copy ray direction to VEC3-A
+               MOVE RAY-DIR-Y TO VEC3-A-Y
+               MOVE RAY-DIR-Z TO VEC3-A-Z
+               PERFORM VEC3-UNIT-VECTOR-A        *> Calculate unit vector (result in VEC3-RESULT)
+               
       * Calculate interpolation parameter based on Y component
       * auto a = 0.5*(unit_direction.y() + 1.0);
       * This maps Y from [-1,1] to a from [0,1]
-           COMPUTE VEC3-SCALAR = 0.5 * (VEC3-RESULT-Y + 1.0)
-           
+               COMPUTE VEC3-SCALAR = 0.5 * (VEC3-RESULT-Y + 1.0)
+               
       * Linear interpolation between white and light blue
       * return (1.0-a)*color(1.0, 1.0, 1.0) + a*color(0.5, 0.7, 1.0);
       * White color when a=0 (Y=-1, looking down)
       * Blue color when a=1 (Y=+1, looking up)
       
       * Calculate (1.0-a) for white component weight
-           COMPUTE VEC3-TEMP-CALC = 1.0 - VEC3-SCALAR
-           
+               COMPUTE VEC3-TEMP-CALC = 1.0 - VEC3-SCALAR
+               
       * Calculate final color components using linear interpolation
       * Red:   (1-a)*1.0 + a*0.5 = (1-a) + 0.5*a
-           COMPUTE PIXEL-COLOR-R = VEC3-TEMP-CALC * 1.0 + 
-                                   VEC3-SCALAR * 0.5
-           
+               COMPUTE PIXEL-COLOR-R = VEC3-TEMP-CALC * 1.0 + 
+                                       VEC3-SCALAR * 0.5
+               
       * Green: (1-a)*1.0 + a*0.7 = (1-a) + 0.7*a  
-           COMPUTE PIXEL-COLOR-G = VEC3-TEMP-CALC * 1.0 + 
-                                   VEC3-SCALAR * 0.7
-           
+               COMPUTE PIXEL-COLOR-G = VEC3-TEMP-CALC * 1.0 + 
+                                       VEC3-SCALAR * 0.7
+               
       * Blue:  (1-a)*1.0 + a*1.0 = (1-a) + a = 1.0 (always full blue)
-           COMPUTE PIXEL-COLOR-B = VEC3-TEMP-CALC * 1.0 + 
-                                   VEC3-SCALAR * 1.0.
+               COMPUTE PIXEL-COLOR-B = VEC3-TEMP-CALC * 1.0 + 
+                                       VEC3-SCALAR * 1.0
+           END-IF
            
-      * Result: Creates realistic sky gradient
-      * - Looking down (Y=-1): White color (1.0, 1.0, 1.0) - horizon
-      * - Looking up (Y=+1):   Light blue (0.5, 0.7, 1.0) - zenith
-      * - Looking horizontal (Y=0): Blend of both colors
+      * Result: Creates red sphere on sky gradient background
+      * - Sphere hit: Solid red color (1.0, 0.0, 0.0)
+      * - Sky background: White to blue gradient based on ray direction
            EXIT.
