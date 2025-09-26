@@ -217,6 +217,7 @@
            05  SPHERE-C            PIC 9V9(6) COMP-3.                *> Quadratic coefficient c
            05  SPHERE-DISCRIMINANT PIC S9V9(6) COMP-3.               *> b²-4ac discriminant
            05  SPHERE-HIT-FLAG     PIC 9 VALUE 0.                    *> 1=hit, 0=miss
+           05  SPHERE-HIT-T        PIC S9V9(6) COMP-3.               *> Hit distance (t parameter)
        
        PROCEDURE DIVISION.
       *****************************************************************
@@ -695,12 +696,12 @@
       * SPHERE INTERSECTION FUNCTION - Ray-Sphere Collision Detection  *
       *****************************************************************
       
-      *> Test if ray intersects sphere (equivalent to hit_sphere function)
-      *> C++ equivalent: bool hit_sphere(const point3& center, double radius, const ray& r)
+      *> Test if ray intersects sphere and return hit distance
+      *> C++ equivalent: double hit_sphere(const point3& center, double radius, const ray& r)
       *> Input: SPHERE-CENTER-X/Y/Z contains sphere center
       *>        SPHERE-RADIUS contains sphere radius
       *>        RAY-DATA contains the ray to test
-      *> Output: SPHERE-HIT-FLAG = 1 if hit, 0 if miss
+      *> Output: SPHERE-HIT-T = hit distance if hit (>0), -1.0 if miss
        HIT-SPHERE.
       * Calculate vector from ray origin to sphere center
       * vec3 oc = center - r.origin()
@@ -729,11 +730,14 @@
            COMPUTE SPHERE-DISCRIMINANT = (SPHERE-B * SPHERE-B) -
                                          (4 * SPHERE-A * SPHERE-C)
                                          
-      * Return true if discriminant >= 0 (ray hits sphere)
-           IF SPHERE-DISCRIMINANT >= 0
-               MOVE 1 TO SPHERE-HIT-FLAG        *> Hit detected
+      * Return hit distance or -1.0 if no hit
+           IF SPHERE-DISCRIMINANT < 0
+               MOVE -1.0 TO SPHERE-HIT-T            *> Miss - no intersection
            ELSE
-               MOVE 0 TO SPHERE-HIT-FLAG        *> Miss
+      * Calculate nearest intersection: (-b - sqrt(discriminant)) / (2*a)
+               COMPUTE SPHERE-HIT-T = (-SPHERE-B - 
+                                      (SPHERE-DISCRIMINANT ** 0.5)) / 
+                                      (2.0 * SPHERE-A)
            END-IF
            EXIT.
            
@@ -745,21 +749,34 @@
       *> C++ equivalent: color ray_color(const ray& r)
       *> Input: RAY-DATA contains the ray to process
       *> Output: PIXEL-COLOR contains the calculated color
-      *> Renders red sphere at (0,0,-1) with radius 0.5, otherwise sky gradient
+      *> Renders sphere with surface normal coloring at (0,0,-1) with radius 0.5
        RAY-COLOR-FUNCTION.
       * Test for sphere intersection at point3(0,0,-1) with radius 0.5
-      * if (hit_sphere(point3(0,0,-1), 0.5, r)) return color(1, 0, 0);
+      * auto t = hit_sphere(point3(0,0,-1), 0.5, r);
            MOVE 0.0 TO SPHERE-CENTER-X           *> Sphere at origin X
            MOVE 0.0 TO SPHERE-CENTER-Y           *> Sphere at origin Y
            MOVE -1.0 TO SPHERE-CENTER-Z          *> Sphere at Z = -1 (in front of camera)
            MOVE 0.5 TO SPHERE-RADIUS             *> Sphere radius = 0.5
-           PERFORM HIT-SPHERE                    *> Test ray-sphere intersection
+           PERFORM HIT-SPHERE                    *> Get hit distance
            
-      * If ray hits sphere, return red color
-           IF SPHERE-HIT-FLAG = 1
-               MOVE 1.0 TO PIXEL-COLOR-R         *> Red sphere
-               MOVE 0.0 TO PIXEL-COLOR-G         *> No green
-               MOVE 0.0 TO PIXEL-COLOR-B         *> No blue
+      * If ray hits sphere (t > 0.0), calculate surface normal and color
+           IF SPHERE-HIT-T > 0.0
+      * Calculate hit point: r.at(t)
+               MOVE SPHERE-HIT-T TO RAY-PARAMETER-T
+               PERFORM RAY-AT-PARAMETER          *> Result in RAY-POINT-X/Y/Z
+               
+      * Calculate surface normal: unit_vector(hit_point - sphere_center)
+      * vec3 N = unit_vector(r.at(t) - vec3(0,0,-1))
+               COMPUTE VEC3-A-X = RAY-POINT-X - 0.0     *> hit_point - center
+               COMPUTE VEC3-A-Y = RAY-POINT-Y - 0.0
+               COMPUTE VEC3-A-Z = RAY-POINT-Z - (-1.0)
+               PERFORM VEC3-UNIT-VECTOR-A        *> Normalize (result in VEC3-RESULT)
+               
+      * Color based on surface normal: 0.5*color(N.x()+1, N.y()+1, N.z()+1)
+      * Map normal from [-1,1] to color range [0,1] and scale by 0.5 for softer look
+               COMPUTE PIXEL-COLOR-R = 0.5 * (VEC3-RESULT-X + 1.0)
+               COMPUTE PIXEL-COLOR-G = 0.5 * (VEC3-RESULT-Y + 1.0)
+               COMPUTE PIXEL-COLOR-B = 0.5 * (VEC3-RESULT-Z + 1.0)
            ELSE
       * Otherwise render sky gradient (existing code)
       * Get the ray direction and normalize it to unit vector
@@ -796,7 +813,7 @@
                                        VEC3-SCALAR * 1.0
            END-IF
            
-      * Result: Creates red sphere on sky gradient background
-      * - Sphere hit: Solid red color (1.0, 0.0, 0.0)
+      * Result: Creates sphere with surface normal shading on sky gradient background
+      * - Sphere hit: Color based on surface normal direction (creates 3D shading effect)
       * - Sky background: White to blue gradient based on ray direction
            EXIT.
