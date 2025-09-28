@@ -9,7 +9,7 @@ I am using gnuCobol on a macbook pro M3 with pro chip.
 
 This will be an interesting project because Cobol is not an object-oriented language, so I will have to simulate classes and inheritance with data structures and procedural code. There is no inheritnce, no abstract classes, etc., all of which are used in this project. So it will be interesting to see one can implement these concepts in Cobol.
 
-What else I have observed that is a departure from my usual JS/TS and Python coding is that Cobol is very versbose. I would normally divide this code base into many files to keep things organized, but in Cobol I am keeping everything in one file to avoid the overhead of multiple compilation units.
+What else I have observed that is a departure from my usual JS/TS and Python coding is that Cobol is very verbose. I would normally divide this code base into many files to keep things organized, but in Cobol I am keeping everything in one file to avoid the overhead of multiple compilation units.
 
 Additionally, COBOL is a compiled language, so there is a compilation step before running the code. Also, Cobol is strongly typed, so all variables must be declared with their types before use.
 
@@ -21,7 +21,7 @@ I have worked with the AI assistant to annotate the code with educational notes 
 
 ## Result:
 
-We completed chapter 8. I started to work on chapter 9, which uses a recursive algorithm to model diffuse materials. Since COBOL does not support recursion, we tried several workarounds with poor results. Finally, I had a discussion with Claude Sonnet 4 about moving forward and how we might implement the algorithm:
+We completed chapter 8. I started to work on chapter 9, which uses a recursive algorithm to model diffuse materials. Since COBOL does not robustly support recursion, we tried several workarounds with poor results. Finally, I had a discussion with Claude Sonnet 4 about moving forward and how we might implement the algorithm:
 
 Me: "Before you do that, lets consider that there is much more to implment in the guide so whatever solution you are coming up with will need to work moving forward with the guide. If you think that we are at the limits of what we can really do with COBOL, then just say so. But we really cant deviate too far from the guide's c++ pseudocode."
 
