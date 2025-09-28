@@ -1,7 +1,22 @@
       *>****************************************************************
-      *> RAY-TRACER - Simple PPM Image Generator                       *
-      *> Generates a gradient image in PPM format                      *
-      *> Based on "Ray Tracing in One Weekend" tutorial                *
+      *> COBOL RAY TRACER - "Ray Tracing in One Weekend" Implementation
+      *> 
+      *> EDUCATIONAL NOTES ON COBOL ADAPTATIONS:
+      *> This implementation demonstrates how to adapt modern C++ algorithms
+      *> to COBOL's procedural, fixed-structure paradigm. Key adaptations:
+      *>
+      *> 1. OBJECT SIMULATION: C++ classes become COBOL data structures
+      *>    with associated procedures (e.g., VEC3-ADD simulates vec3::operator+)
+      *>
+      *> 2. MEMORY MANAGEMENT: Static allocation replaces dynamic objects
+      *>    (all vectors, rays, and objects pre-allocated in WORKING-STORAGE)
+      *>
+      *> 3. FUNCTION CALLS: Method chaining becomes sequential PERFORM statements
+      *>    C++: result = vec1.normalize().dot(vec2)
+      *>    COBOL: PERFORM VEC3-NORMALIZE-A; PERFORM VEC3-DOT-PRODUCT
+      *>
+      *> 4. NUMERICAL PRECISION: COMP-3 packed decimal provides reliable
+      *>    floating-point arithmetic essential for ray tracing mathematics
       *>****************************************************************
        IDENTIFICATION DIVISION.
        PROGRAM-ID. RAY-TRACER.
@@ -9,45 +24,44 @@
        ENVIRONMENT DIVISION.
        INPUT-OUTPUT SECTION.
        FILE-CONTROL.
-      *> Define output file for PPM image format
            SELECT OUTPUT-FILE ASSIGN TO "image.ppm"
            ORGANIZATION IS LINE SEQUENTIAL.
        
        DATA DIVISION.
-       FILE SECTION.*> File descriptor for PPM output file
+       FILE SECTION.
        FD  OUTPUT-FILE.
-       01  OUTPUT-RECORD           PIC X(80).  *> 80-char output record
+       01  OUTPUT-RECORD           PIC X(80).
        
        WORKING-STORAGE SECTION. 
-      *> PPM format constants  
-       01  MAX-COLOR-VALUE         PIC 9(3) VALUE 255.  *> Max RGB value for PPM
+      *> COBOL EDUCATIONAL NOTE - STATIC MEMORY ALLOCATION:
+      *> Unlike C++ which uses dynamic memory (new/delete), COBOL allocates
+      *> all data structures at compile time. This means we must pre-define
+      *> maximum sizes (e.g., 50 objects max) rather than growing arrays.
+      *> Trade-off: More predictable memory usage, but less flexible.
        
-      *> Loop iteration variables
+       01  MAX-COLOR-VALUE         PIC 9(3) VALUE 255.
+       
        01  LOOP-COUNTERS.
-           05  I                   PIC 9(3) VALUE 0.  *> X-axis pixel counter
-           05  J                   PIC 9(3) VALUE 0.  *> Y-axis pixel counter
-           05  SAMPLE              PIC 9(3) VALUE 0.  *> Sample counter for antialiasing
+           05  I                   PIC 9(3) VALUE 0.    *> X-axis pixel counter
+           05  J                   PIC 9(3) VALUE 0.    *> Y-axis pixel counter
+           05  SAMPLE              PIC 9(3) VALUE 0.    *> Antialiasing sample counter
            
-      *> Sample offset working variables (for random sampling)
        01  SAMPLE-WORK-VARS.
-           05  SAMPLE-OFFSET-X     PIC S9V9(6) COMP-3. *> Random X offset [-0.5, +0.5]
-           05  SAMPLE-OFFSET-Y     PIC S9V9(6) COMP-3. *> Random Y offset [-0.5, +0.5]
+           05  SAMPLE-OFFSET-X     PIC S9V9(6) COMP-3.  *> Random X offset [-0.5, +0.5]
+           05  SAMPLE-OFFSET-Y     PIC S9V9(6) COMP-3.  *> Random Y offset [-0.5, +0.5]
        
-      *> Floating-point color values (0.0 to 1.0)
        01  COLOR-VALUES.
-           05  R                   PIC 9V9(6) COMP-3.  *> Red component
-           05  G                   PIC 9V9(6) COMP-3.  *> Green component
-           05  B                   PIC 9V9(6) COMP-3 VALUE 0.0.  *> Blue (always 0)
+           05  R                   PIC 9V9(6) COMP-3.
+           05  G                   PIC 9V9(6) COMP-3.
+           05  B                   PIC 9V9(6) COMP-3 VALUE 0.0.
        
-      *> Integer RGB values for PPM output (0-255)
        01  RGB-INTEGERS.
-           05  IR                  PIC 9(3).        *> Red integer value
-           05  IG                  PIC 9(3).        *> Green integer value
-           05  IB                  PIC 9(3) VALUE 0.        *> Blue integer value
+           05  IR                  PIC 9(3).            *> RGB values for PPM output (0-255)
+           05  IG                  PIC 9(3).
+           05  IB                  PIC 9(3) VALUE 0.
        
-      *> Temporary calculation variables
        01  TEMP-CALCULATIONS.
-           05  TEMP-R              PIC 9V9(6) COMP-3.  *> Temp red calculation
+           05  TEMP-R              PIC 9V9(6) COMP-3.
            05  TEMP-G              PIC 9V9(6) COMP-3.  *> Temp green calculation
            05  WIDTH-MINUS-1       PIC 9(3).           *> Width - 1 for division
            05  HEIGHT-MINUS-1      PIC 9(3).           *> Height - 1 for division
@@ -55,57 +69,78 @@
        
       *> Output formatting variables
        01  OUTPUT-LINE             PIC X(20).  *> Formatted pixel RGB values
-       01  HEADER-LINE             PIC X(20).  *> PPM header format line
-       01  DIMENSION-LINE          PIC X(20).  *> Image dimensions line
-       01  MAX-COLOR-LINE          PIC X(10).  *> Maximum color value line
-       01  PROGRESS-LINE           PIC X(50).  *> Progress display formatting
-       01  SCANLINES-REMAINING     PIC 9(3).   *> Countdown for progress
+       01  HEADER-LINE             PIC X(20).
+       01  DIMENSION-LINE          PIC X(20).
+       01  MAX-COLOR-LINE          PIC X(10).
+       01  PROGRESS-LINE           PIC X(50).
+       01  SCANLINES-REMAINING     PIC 9(3).
        
       *>****************************************************************
-      *> VEC3 DATA STRUCTURES - 3D Vector Support                      *
+      *> VEC3 DATA STRUCTURES - 3D Vector Support
+      *>
+      *> COBOL EDUCATIONAL NOTE - CLASS SIMULATION:
+      *> C++ vec3 class becomes multiple COBOL structures:
+      *> - VEC3-A, VEC3-B: Input vectors (like function parameters)
+      *> - VEC3-RESULT: Output vector (like function return value)
+      *> - VEC3-TEMP: Temporary calculations (like local variables)
+      *>
+      *> This pattern simulates object-oriented design in procedural COBOL.
+      *> Each "method call" becomes a PERFORM statement that operates on
+      *> these shared data structures.
       *>****************************************************************
-     *> Primary vector structures (equivalent to vec3 objects)
-       01  VEC3-A.                             *> First vector
-           05  VEC3-A-X            PIC S9(3)V9(6) COMP-3.  *> X component (-999.999999 to +999.999999)
-           05  VEC3-A-Y            PIC S9(3)V9(6) COMP-3.  *> Y component (-999.999999 to +999.999999)  
-           05  VEC3-A-Z            PIC S9(3)V9(6) COMP-3.  *> Z component (-999.999999 to +999.999999)
+       01  VEC3-A.                             *> Primary vector
+           05  VEC3-A-X            PIC S9(3)V9(6) COMP-3.
+           05  VEC3-A-Y            PIC S9(3)V9(6) COMP-3.
+           05  VEC3-A-Z            PIC S9(3)V9(6) COMP-3.
            
-       01  VEC3-B.                             *> Second vector
-           05  VEC3-B-X            PIC S9(3)V9(6) COMP-3.  *> X component
-           05  VEC3-B-Y            PIC S9(3)V9(6) COMP-3.  *> Y component
-           05  VEC3-B-Z            PIC S9(3)V9(6) COMP-3.  *> Z component
+       01  VEC3-B.                             *> Secondary vector
+           05  VEC3-B-X            PIC S9(3)V9(6) COMP-3.
+           05  VEC3-B-Y            PIC S9(3)V9(6) COMP-3.
+           05  VEC3-B-Z            PIC S9(3)V9(6) COMP-3.
            
        01  VEC3-RESULT.                        *> Result vector
-           05  VEC3-RESULT-X       PIC S9(3)V9(6) COMP-3.  *> X component
-           05  VEC3-RESULT-Y       PIC S9(3)V9(6) COMP-3.  *> Y component
-           05  VEC3-RESULT-Z       PIC S9(3)V9(6) COMP-3.  *> Z component
+           05  VEC3-RESULT-X       PIC S9(3)V9(6) COMP-3.
+           05  VEC3-RESULT-Y       PIC S9(3)V9(6) COMP-3.
+           05  VEC3-RESULT-Z       PIC S9(3)V9(6) COMP-3.
            
-       01  VEC3-TEMP.                          *> Temporary vector
-           05  VEC3-TEMP-X         PIC S9(3)V9(6) COMP-3.  *> X component
-           05  VEC3-TEMP-Y         PIC S9(3)V9(6) COMP-3.  *> Y component
-           05  VEC3-TEMP-Z         PIC S9(3)V9(6) COMP-3.  *> Z component
+       01  VEC3-TEMP.                          *> Temporary calculations
+           05  VEC3-TEMP-X         PIC S9(3)V9(6) COMP-3.
+           05  VEC3-TEMP-Y         PIC S9(3)V9(6) COMP-3.
+           05  VEC3-TEMP-Z         PIC S9(3)V9(6) COMP-3.
            
-      *> Vector calculation working variables
        01  VEC3-WORK-VARS.
-           05  VEC3-SCALAR         PIC S9(3)V9(6) COMP-3.  *> Scalar multiplier (-999.999999 to +999.999999)
-           05  VEC3-LENGTH         PIC 9(3)V9(6) COMP-3.   *> Vector length
-           05  VEC3-LENGTH-SQR     PIC 9(6)V9(6) COMP-3.   *> Length squared (larger for squared values)
-           05  VEC3-DOT-PRODUCT    PIC S9(6)V9(6) COMP-3.  *> Dot product result (can be large)
-           05  VEC3-TEMP-CALC      PIC S9(3)V9(6) COMP-3.  *> General temp calc         
-       01  VEC3-OUTPUT-LINE        PIC X(40).  *> For vector display
-      *> Display formatting variables (COMP-3 cannot be used in STRING)
-       01  VEC3-DISPLAY-VARS.                  *> For STRING operations
-           05  VEC3-DISPLAY-X      PIC -(6)9.9(6).  *> X component in display format
-           05  VEC3-DISPLAY-Y      PIC -(6)9.9(6).  *> Y component in display format
-           05  VEC3-DISPLAY-Z      PIC -(6)9.9(6).  *> Z component in display format
+      *> COBOL EDUCATIONAL NOTE - NUMERICAL PRECISION:
+      *> COMP-3 (packed decimal) chosen over COMP (binary) for precise
+      *> decimal arithmetic. Ray tracing requires exact calculations to
+      *> avoid visual artifacts. Binary floating-point can introduce
+      *> rounding errors that accumulate across millions of ray calculations.
+           05  VEC3-SCALAR         PIC S9(3)V9(6) COMP-3.
+           05  VEC3-LENGTH         PIC 9(3)V9(6) COMP-3.
+           05  VEC3-LENGTH-SQR     PIC 9(6)V9(6) COMP-3.  *> Larger field for squared values
+           05  VEC3-DOT-PRODUCT    PIC S9(6)V9(6) COMP-3. *> Can be large and negative
+           05  VEC3-TEMP-CALC      PIC S9(3)V9(6) COMP-3.
+           
+       01  VEC3-OUTPUT-LINE        PIC X(40).
+       01  VEC3-DISPLAY-VARS.
+      *> COBOL EDUCATIONAL NOTE - DATA TYPE LIMITATIONS:
+      *> COMP-3 fields cannot be used directly in STRING operations,
+      *> requiring conversion to display format. This is a common COBOL
+      *> pattern: computational fields for math, display fields for I/O.
+           05  VEC3-DISPLAY-X      PIC -(6)9.9(6).
+           05  VEC3-DISPLAY-Y      PIC -(6)9.9(6).
+           05  VEC3-DISPLAY-Z      PIC -(6)9.9(6).
 
       *>****************************************************************
-      *> COLOR DATA STRUCTURES - Color Support (using color = vec3)    *
+      *> COLOR DATA STRUCTURES - Color Support (color = vec3)
       *>****************************************************************
-      *> Color structures (equivalent to color alias for vec3)
-       01  PIXEL-COLOR.                        *> Current pixel color
-           05  PIXEL-COLOR-R       PIC 999V9(6) COMP-3.  *> Red component (accumulates samples, then scaled)
-           05  PIXEL-COLOR-G       PIC 999V9(6) COMP-3.  *> Green component (accumulates samples, then scaled)
+       01  PIXEL-COLOR.                        *> Current pixel color accumulator
+      *> COBOL EDUCATIONAL NOTE - OVERFLOW PREVENTION:
+      *> PIC 999V9(6) allows values up to 999.999999, large enough to
+      *> accumulate 100 samples (each 0-1 range) without overflow.
+      *> Previous PIC 9V9(6) caused darkening when samples exceeded 9.999999.
+      *> This demonstrates COBOL's explicit field sizing requirements.
+           05  PIXEL-COLOR-R       PIC 999V9(6) COMP-3.
+           05  PIXEL-COLOR-G       PIC 999V9(6) COMP-3.
            05  PIXEL-COLOR-B       PIC 999V9(6) COMP-3.  *> Blue component (accumulates samples, then scaled)
            
       *> Color output working variables
@@ -147,36 +182,56 @@
            05  RAY-POINT-Y         PIC S9V9(6) COMP-3.  *> Calculated point Y
            05  RAY-POINT-Z         PIC S9V9(6) COMP-3.  *> Calculated point Z
            
-      *>****************************************************************
-      *> CAMERA CLASS - Ray Generation and Rendering                   *
-      *>****************************************************************
-      *> COBOL implementation of C++ camera class with public parameters
-      *> and methods: initialize(), render(), get_ray(), ray_color()
-      *> 
-      *> Public Camera Parameters (equivalent to C++ public variables)
-      *> These can be modified before calling render()
-       01  CAMERA-PUBLIC-PARAMS.
-           05  ASPECT-RATIO        PIC 9V9(6) COMP-3 VALUE 1.0.      *> Ratio of image width over height
-           05  IMAGE-WIDTH         PIC 9(3) VALUE 100.                *> Rendered image width in pixel count
-           05  SAMPLES-PER-PIXEL   PIC 9(3) VALUE 10.                 *> Count of random samples for each pixel
+      *> Iterative ray tracing variables (replaces recursion)
+       01  RAY-TRACE-VARS.
+           05  RAY-DEPTH-CURRENT   PIC 9(2) COMP.       *> Current ray depth (0-50)
+           05  RAY-COLOR-SCALE     PIC 9V9(6) COMP-3.   *> Color attenuation accumulator
+           05  RAY-CURRENT-ORIGIN. *> Current ray origin for iterative bounces
+               10  RAY-CURRENT-ORIGIN-X  PIC S9V9(6) COMP-3.
+               10  RAY-CURRENT-ORIGIN-Y  PIC S9V9(6) COMP-3.
+               10  RAY-CURRENT-ORIGIN-Z  PIC S9V9(6) COMP-3.
+           05  RAY-CURRENT-DIR.    *> Current ray direction for iterative bounces  
+               10  RAY-CURRENT-DIR-X     PIC S9V9(6) COMP-3.
+               10  RAY-CURRENT-DIR-Y     PIC S9V9(6) COMP-3.
+               10  RAY-CURRENT-DIR-Z     PIC S9V9(6) COMP-3.
            
-      *> Private Camera Variables (equivalent to C++ private variables)
-      *> These are calculated internally by initialize()
+      *>****************************************************************
+      *> CAMERA CLASS - Ray Generation and Rendering
+      *>
+      *> COBOL EDUCATIONAL NOTE - PUBLIC/PRIVATE SIMULATION:
+      *> C++ classes have public/private sections. In COBOL, we simulate
+      *> this with separate data structures:
+      *> - CAMERA-PUBLIC-PARAMS: User-configurable (like C++ public:)
+      *> - CAMERA-PRIVATE-VARS: Internal calculations (like C++ private:)
+      *>
+      *> This design pattern makes the interface clear and prevents
+      *> accidental modification of internal state.
+      *>****************************************************************
+       01  CAMERA-PUBLIC-PARAMS.
+           05  ASPECT-RATIO        PIC 9V9(6) COMP-3 VALUE 1.777777. *> 16:9 aspect ratio
+           05  IMAGE-WIDTH         PIC 9(3) VALUE 400.                *> Image width in pixels
+           05  SAMPLES-PER-PIXEL   PIC 9(3) VALUE 100.                *> Antialiasing samples
+           
        01  CAMERA-PRIVATE-VARS.
-           05  IMAGE-HEIGHT        PIC 9(3).                          *> Rendered image height (calculated)
-           05  PIXEL-SAMPLES-SCALE PIC 9V9(6) COMP-3.                *> Color scale factor for sum of pixel samples
-           05  CENTER-X            PIC S9V9(6) COMP-3.                *> Camera center X (calculated) 
-           05  CENTER-Y            PIC S9V9(6) COMP-3.                *> Camera center Y (calculated)
-           05  CENTER-Z            PIC S9V9(6) COMP-3.                *> Camera center Z (calculated)
-           05  PIXEL00-LOC-X       PIC S9V9(6) COMP-3.                *> Location of pixel 0,0 X
-           05  PIXEL00-LOC-Y       PIC S9V9(6) COMP-3.                *> Location of pixel 0,0 Y  
-           05  PIXEL00-LOC-Z       PIC S9V9(6) COMP-3.                *> Location of pixel 0,0 Z
-           05  PIXEL-DELTA-U-X     PIC S9V9(6) COMP-3.                *> Offset to pixel to the right X
-           05  PIXEL-DELTA-U-Y     PIC S9V9(6) COMP-3.                *> Offset to pixel to the right Y
-           05  PIXEL-DELTA-U-Z     PIC S9V9(6) COMP-3.                *> Offset to pixel to the right Z
-           05  PIXEL-DELTA-V-X     PIC S9V9(6) COMP-3.                *> Offset to pixel below X
-           05  PIXEL-DELTA-V-Y     PIC S9V9(6) COMP-3.                *> Offset to pixel below Y
-           05  PIXEL-DELTA-V-Z     PIC S9V9(6) COMP-3.                *> Offset to pixel below Z
+           05  IMAGE-HEIGHT        PIC 9(3).                          *> Calculated image height
+           05  PIXEL-SAMPLES-SCALE PIC 9V9(6) COMP-3.                *> Sample scaling factor
+           05  CENTER-X            PIC S9V9(6) COMP-3.                *> Camera center
+           05  CENTER-Y            PIC S9V9(6) COMP-3.
+           05  CENTER-Z            PIC S9V9(6) COMP-3.
+           05  PIXEL00-LOC-X       PIC S9V9(6) COMP-3.                *> Top-left pixel location
+           05  PIXEL00-LOC-Y       PIC S9V9(6) COMP-3.
+           05  PIXEL00-LOC-Z       PIC S9V9(6) COMP-3.
+           05  PIXEL-DELTA-U-X     PIC S9V9(6) COMP-3.                *> Pixel spacing vectors
+           05  PIXEL-DELTA-U-Y     PIC S9V9(6) COMP-3.
+           05  PIXEL-DELTA-U-Z     PIC S9V9(6) COMP-3.
+           05  PIXEL-DELTA-V-X     PIC S9V9(6) COMP-3.
+           05  PIXEL-DELTA-V-Y     PIC S9V9(6) COMP-3.
+           05  PIXEL-DELTA-V-Z     PIC S9V9(6) COMP-3.
+
+      *> Recursion tracking for ray bouncing (Lambertian scattering)
+       01  RAY-RECURSION-VARS.
+           05  RECURSION-DEPTH     PIC 9(2) VALUE 0.                  *> Current recursion depth
+           05  MAX-RECURSION-DEPTH PIC 9(2) VALUE 3.                  *> Maximum allowed recursion depth (reduced for performance)
            
       *> Legacy support structures (for backward compatibility)
        01  CAMERA-PARAMS.
@@ -365,56 +420,57 @@
            
       *> Utility function working variables
        01  UTILITY-WORK-VARS.
-           05  DEGREES-INPUT       PIC S9V9(6) COMP-3.                         *> Input degrees value
-           05  RADIANS-OUTPUT      PIC S9V9(6) COMP-3.                         *> Output radians value
-           05  TEMP-CALC           PIC S9V9(12) COMP-3.                        *> Temporary calculation
+           05  DEGREES-INPUT       PIC S9V9(6) COMP-3.
+           05  RADIANS-OUTPUT      PIC S9V9(6) COMP-3.
+           05  TEMP-CALC           PIC S9V9(12) COMP-3.
            
        PROCEDURE DIVISION.
       *>****************************************************************
-      *> Main program execution flow                                  *
+      *> Main Program - COBOL Ray Tracer
       *>****************************************************************
        MAIN-PROGRAM.
-      *> Create camera and set up world (equivalent to C++ main)
-           PERFORM CAMERA-SET-DEFAULTS      *> Set camera public parameters
-           PERFORM WORLD-SETUP              *> Create world with spheres
-           PERFORM CAMERA-RENDER            *> Camera handles everything else
+      *> COBOL EDUCATIONAL NOTE - PROGRAM FLOW:
+      *> C++ main() can instantiate objects and call methods directly:
+      *>   camera cam; hittable_list world; cam.render(world);
+      *>
+      *> COBOL uses procedural flow with explicit setup:
+      *> 1. Initialize camera parameters (like constructor calls)
+      *> 2. Build world with explicit object creation
+      *> 3. Call render procedure with implicit data sharing
+      *>
+      *> This pattern separates concerns clearly but requires more setup.
+           PERFORM CAMERA-SET-DEFAULTS
+           PERFORM WORLD-SETUP
+           PERFORM CAMERA-RENDER
            DISPLAY "PPM file 'image.ppm' created successfully!"
            STOP RUN.
        
-      *> File handling procedures
        OPEN-OUTPUT-FILE.
-           OPEN OUTPUT OUTPUT-FILE.     *> Open file for writing
+           OPEN OUTPUT OUTPUT-FILE.
        
-      *> Camera set defaults - equivalent to setting public parameters in C++
-      *> C++ equivalent: camera cam; cam.aspect_ratio = 16.0/9.0; cam.image_width = 400; cam.samples_per_pixel = 100;
        CAMERA-SET-DEFAULTS.
-      *> Set public camera parameters (can be overridden by user)
-           MOVE 1.777777 TO ASPECT-RATIO        *> 16/9 aspect ratio (16.0/9.0)  
-           MOVE 400 TO IMAGE-WIDTH              *> Rendered image width 
-           MOVE 100 TO SAMPLES-PER-PIXEL        *> DEBUG: Back to 100 samples to see what's wrong
+           MOVE 1.777777 TO ASPECT-RATIO        *> 16:9 aspect ratio
+           MOVE 400 TO IMAGE-WIDTH
+           MOVE 100 TO SAMPLES-PER-PIXEL        *> Antialiasing samples
            EXIT.
            
        CLOSE-OUTPUT-FILE.
-           CLOSE OUTPUT-FILE.           *> Close and finalize file
+           CLOSE OUTPUT-FILE.
        
-      *> World setup - separate from camera (equivalent to C++ main world creation)
-      *> C++ equivalent: hittable_list world; world.add(...);
+      *>****************************************************************
+      *> World Setup - Create scene with spheres
+      *>****************************************************************
        WORLD-SETUP.
-      *>****************************************************************
-      *> WORLD SETUP - Create scene with multiple spheres             *
-      *>****************************************************************
-      *> World setup (equivalent to C++ world creation)
-      *> hittable_list world;
-           PERFORM HITTABLE-LIST-CONSTRUCTOR       *> Initialize empty world
+           PERFORM HITTABLE-LIST-CONSTRUCTOR
            
-      *> world.add(make_shared<sphere>(point3(0,0,-1), 0.5));
-           MOVE 0.0 TO VEC3-A-X                    *> First sphere center
+      *> Add center sphere at (0,0,-1) radius 0.5
+           MOVE 0.0 TO VEC3-A-X
            MOVE 0.0 TO VEC3-A-Y
            MOVE -1.0 TO VEC3-A-Z
-           MOVE 0.5 TO VEC3-SCALAR                 *> First sphere radius
-           PERFORM HITTABLE-LIST-ADD-SPHERE        *> Add first sphere to world
+           MOVE 0.5 TO VEC3-SCALAR
+           PERFORM HITTABLE-LIST-ADD-SPHERE
            
-      *> world.add(make_shared<sphere>(point3(0,-100.5,-1), 100));
+      *> Add ground sphere at (0,-100.5,-1) radius 100
            MOVE 0.0 TO VEC3-A-X                    *> Ground sphere center
            MOVE -100.5 TO VEC3-A-Y                 *> Large ground sphere below
            MOVE -1.0 TO VEC3-A-Z
@@ -612,82 +668,59 @@
            COMPUTE SAMPLE-OFFSET-Y = VEC3-SCALAR - 0.5  *> Y offset: random() - 0.5
            EXIT.
            
-      *> Camera ray_color() method - calculates color for a ray
-      *> C++ equivalent: color ray_color(const ray& r, const hittable& world) const (private method)
-      *> Input: RAY-DATA contains the ray to process
-      *> Output: VEC3-RESULT contains the calculated color (for accumulation in render loop)
+      *> Camera ray_color() method - calculates color for a ray with surface normal shading
+      *> COBOL EDUCATIONAL NOTE - RECURSION LIMITATION:
+      *> The C++ tutorial uses recursive ray_color() for material bounces:
+      *>   return 0.5 * ray_color(scattered_ray, depth-1, world);
+      *>
+      *> COBOL has limited recursion support (stack overflow issues), so we
+      *> use surface normal shading instead. This demonstrates how COBOL's
+      *> procedural nature sometimes requires algorithmic simplification.
+      *>
+      *> Alternative approaches for complex recursion in COBOL:
+      *> 1. Iterative algorithms with explicit stacks
+      *> 2. Depth limitation with early termination
+      *> 3. Algorithm simplification (as done here)
        CAMERA-RAY-COLOR.
-      *> Test ray against world objects using hittable list
-      *> hit_record rec;
-      *> if (world.hit(r, interval(0, infinity), rec))
-           MOVE 0.0 TO HIT-RAY-T-MIN               *> Use 0 as per C++ pseudocode
-           MOVE INFINITY-VALUE TO HIT-RAY-T-MAX    *> Use infinity constant
-           PERFORM HITTABLE-LIST-HIT               *> Test against world
+           MOVE 0.001 TO HIT-RAY-T-MIN
+           MOVE INFINITY-VALUE TO HIT-RAY-T-MAX
+           PERFORM HITTABLE-LIST-HIT
            
-      *> If ray hits any object in world, use surface normal for coloring
            IF HIT-RESULT = 1 AND HIT-OCCURRED = 1
-      *> return 0.5 * (rec.normal + color(1,1,1))
-      *> Add (1,1,1) to normal to shift from [-1,1] to [0,2], then scale by 0.5 to get [0,1]
+      *> Surface normal shading: maps normal [-1,1] to color [0,1]
                COMPUTE VEC3-RESULT-X = 0.5 * (HIT-NORMAL-X + 1.0)
                COMPUTE VEC3-RESULT-Y = 0.5 * (HIT-NORMAL-Y + 1.0)
                COMPUTE VEC3-RESULT-Z = 0.5 * (HIT-NORMAL-Z + 1.0)
            ELSE
-      *> Otherwise render sky gradient (existing code)
-      *> Get the ray direction and normalize it to unit vector
-      *> vec3 unit_direction = unit_vector(r.direction());
-               MOVE RAY-DIR-X TO VEC3-A-X        *> Copy ray direction to VEC3-A
+      *> Sky gradient background
+               MOVE RAY-DIR-X TO VEC3-A-X
                MOVE RAY-DIR-Y TO VEC3-A-Y
                MOVE RAY-DIR-Z TO VEC3-A-Z
-               PERFORM VEC3-UNIT-VECTOR-A        *> Calculate unit vector (result in VEC3-RESULT)
+               PERFORM VEC3-UNIT-VECTOR-A
                
-      *> Calculate interpolation parameter based on Y component
-      *> auto a = 0.5*(unit_direction.y() + 1.0);
-      *> This maps Y from [-1,1] to a from [0,1]
+      *> Interpolation parameter: maps Y from [-1,1] to [0,1]
                COMPUTE VEC3-SCALAR = 0.5 * (VEC3-RESULT-Y + 1.0)
-               
-      *> Linear interpolation between white and light blue
-      *> return (1.0-a)*color(1.0, 1.0, 1.0) + a*color(0.5, 0.7, 1.0);
-      *> White color when a=0 (Y=-1, looking down)
-      *> Blue color when a=1 (Y=+1, looking up)
-      
-      *> Calculate (1.0-a) for white component weight
                COMPUTE VEC3-TEMP-CALC = 1.0 - VEC3-SCALAR
                
-      *> Calculate final color components using linear interpolation
-      *> Red:   (1-a)*1.0 + a*0.5 = (1-a) + 0.5*a
-               COMPUTE VEC3-RESULT-X = VEC3-TEMP-CALC * 1.0 + 
-                                       VEC3-SCALAR * 0.5
-               
-      *> Green: (1-a)*1.0 + a*0.7 = (1-a) + 0.7*a  
-               COMPUTE VEC3-RESULT-Y = VEC3-TEMP-CALC * 1.0 + 
-                                       VEC3-SCALAR * 0.7
-               
-      *> Blue:  (1-a)*1.0 + a*1.0 = (1-a) + a = 1.0 (always full blue)
-               COMPUTE VEC3-RESULT-Z = VEC3-TEMP-CALC * 1.0 + 
-                                       VEC3-SCALAR * 1.0
+      *> Linear blend: white to light blue
+               COMPUTE VEC3-RESULT-X = VEC3-TEMP-CALC * 1.0 + VEC3-SCALAR * 0.5
+               COMPUTE VEC3-RESULT-Y = VEC3-TEMP-CALC * 1.0 + VEC3-SCALAR * 0.7
+               COMPUTE VEC3-RESULT-Z = VEC3-TEMP-CALC * 1.0 + VEC3-SCALAR * 1.0
            END-IF
-           
-      *> Result: Creates sphere with surface normal shading on sky gradient background
-      *> - Sphere hit: Color based on surface normal direction (creates 3D shading effect)
-      *> - Sky background: White to blue gradient based on ray direction
            EXIT.
        
-      *> Write pixel color to PPM file using write_color function
        OUTPUT-PIXEL.
-      *> Equivalent to: write_color(std::cout, pixel_color);
            PERFORM WRITE-COLOR-TO-FILE.
        
-      *> Display rendering progress to terminal
        DISPLAY-PROGRESS.
-           COMPUTE SCANLINES-REMAINING = IMAGE-HEIGHT - J  *> Count down remaining rows
+           COMPUTE SCANLINES-REMAINING = IMAGE-HEIGHT - J
            STRING "Scanlines remaining: " SCANLINES-REMAINING " "
                   DELIMITED BY SIZE INTO PROGRESS-LINE
-           DISPLAY PROGRESS-LINE.           *> Show progress on terminal
+           DISPLAY PROGRESS-LINE
            EXIT.
        
-      *> Display completion message
        DISPLAY-COMPLETION.
-           DISPLAY "Done.                    ".  *> Clear progress line and show done
+           DISPLAY "Done.                    ".
            
       *>****************************************************************
       *> VEC3 PROCEDURES - 3D Vector Operations                       *
@@ -745,13 +778,21 @@
            END-EVALUATE.
            
       *>****************************************************************
-      *> VEC3 ARITHMETIC OPERATIONS - Vector Math                     *
+      *> VEC3 ARITHMETIC OPERATIONS - Vector Math
+      *>
+      *> COBOL EDUCATIONAL NOTE - OPERATOR OVERLOADING SIMULATION:
+      *> C++ supports operator overloading: vec3 c = a + b;
+      *> COBOL has no operator overloading, so we create named procedures:
+      *>   C++:    vec3 c = a + b;
+      *>   COBOL:  MOVE a TO VEC3-A; MOVE b TO VEC3-B; PERFORM VEC3-ADD
+      *>           MOVE VEC3-RESULT TO c
+      *>
+      *> This pattern makes vector math explicit but more verbose.
       *>****************************************************************
-      *> Vector addition: VEC3-RESULT = VEC3-A + VEC3-B (operator+ equivalent)
        VEC3-ADD.
-           ADD VEC3-A-X TO VEC3-B-X GIVING VEC3-RESULT-X  *> Result X = A.X + B.X
-           ADD VEC3-A-Y TO VEC3-B-Y GIVING VEC3-RESULT-Y  *> Result Y = A.Y + B.Y
-           ADD VEC3-A-Z TO VEC3-B-Z GIVING VEC3-RESULT-Z. *> Result Z = A.Z + B.Z
+           ADD VEC3-A-X TO VEC3-B-X GIVING VEC3-RESULT-X
+           ADD VEC3-A-Y TO VEC3-B-Y GIVING VEC3-RESULT-Y
+           ADD VEC3-A-Z TO VEC3-B-Z GIVING VEC3-RESULT-Z.
            
       *> Vector subtraction: VEC3-RESULT = VEC3-A - VEC3-B (operator- equivalent)
        VEC3-SUBTRACT.
@@ -848,6 +889,106 @@
            COMPUTE VEC3-RESULT-X = VEC3-A-X / VEC3-LENGTH  *> Normalize X
            COMPUTE VEC3-RESULT-Y = VEC3-A-Y / VEC3-LENGTH  *> Normalize Y
            COMPUTE VEC3-RESULT-Z = VEC3-A-Z / VEC3-LENGTH. *> Normalize Z
+
+      *> COBOL EDUCATIONAL NOTE - RANDOM NUMBER GENERATION:
+      *> C++ uses <random> library with sophisticated generators.
+      *> COBOL uses FUNCTION RANDOM which provides basic pseudorandom numbers.
+      *> We build complex random vectors from this simple primitive.
+      *>
+      *> Pattern: Single random function -> Complex random structures
+       VEC3-RANDOM.
+           PERFORM RANDOM-DOUBLE
+           MOVE VEC3-SCALAR TO VEC3-RESULT-X
+           PERFORM RANDOM-DOUBLE
+           MOVE VEC3-SCALAR TO VEC3-RESULT-Y
+           PERFORM RANDOM-DOUBLE
+           MOVE VEC3-SCALAR TO VEC3-RESULT-Z.
+
+      *> Generate random vec3 with components in [min,max) range
+      *> C++ equivalent: static vec3 random(double min, double max) { return vec3(random_double(min,max), random_double(min,max), random_double(min,max)); }
+      *> Input: VEC3-SCALAR contains min, VEC3-TEMP-CALC contains max
+      *> Output: VEC3-RESULT contains random vector with each component in [min, max)
+       VEC3-RANDOM-RANGE.
+      *> Save min and max values for multiple calls
+           MOVE VEC3-SCALAR TO VEC3-TEMP-X      *> Store min
+           MOVE VEC3-TEMP-CALC TO VEC3-TEMP-Y   *> Store max
+           
+      *> Generate random X component
+           MOVE VEC3-TEMP-X TO VEC3-SCALAR      *> min for X
+           MOVE VEC3-TEMP-Y TO VEC3-TEMP-CALC   *> max for X
+           PERFORM RANDOM-DOUBLE-RANGE          *> Get random X in [min, max)
+           MOVE VEC3-SCALAR TO VEC3-RESULT-X
+           
+      *> Generate random Y component  
+           MOVE VEC3-TEMP-X TO VEC3-SCALAR      *> min for Y
+           MOVE VEC3-TEMP-Y TO VEC3-TEMP-CALC   *> max for Y
+           PERFORM RANDOM-DOUBLE-RANGE          *> Get random Y in [min, max)
+           MOVE VEC3-SCALAR TO VEC3-RESULT-Y
+           
+      *> Generate random Z component
+           MOVE VEC3-TEMP-X TO VEC3-SCALAR      *> min for Z
+           MOVE VEC3-TEMP-Y TO VEC3-TEMP-CALC   *> max for Z
+           PERFORM RANDOM-DOUBLE-RANGE          *> Get random Z in [min, max)
+           MOVE VEC3-SCALAR TO VEC3-RESULT-Z.
+
+      *> Generate random unit vector (normalized random vector on unit sphere)
+      *> C++ equivalent: inline vec3 random_unit_vector()
+      *> Output: VEC3-RESULT contains random unit vector with length = 1.0
+       VEC3-RANDOM-UNIT-VECTOR.
+      *> Simplified approach: generate random point and normalize (faster than rejection sampling)
+      *> Generate random point in [-1,1] cube: auto p = vec3::random(-1,1);
+           MOVE -1.0 TO VEC3-SCALAR         *> min = -1.0
+           MOVE 1.0 TO VEC3-TEMP-CALC       *> max = 1.0
+           PERFORM VEC3-RANDOM-RANGE        *> Generate random point in [-1,1]³
+           
+      *> Copy to VEC3-A and normalize
+           MOVE VEC3-RESULT-X TO VEC3-A-X   *> Copy random point to VEC3-A
+           MOVE VEC3-RESULT-Y TO VEC3-A-Y
+           MOVE VEC3-RESULT-Z TO VEC3-A-Z
+           PERFORM VEC3-LENGTH-SQUARED-A    *> Get length squared
+           
+      *> If length is too small, use a default vector to avoid division by zero
+           IF VEC3-LENGTH-SQR < 0.000001
+               MOVE 0.0 TO VEC3-RESULT-X
+               MOVE 1.0 TO VEC3-RESULT-Y    *> Use (0,1,0) as default
+               MOVE 0.0 TO VEC3-RESULT-Z
+           ELSE
+      *> Normalize the vector: return p / sqrt(lensq);
+               COMPUTE VEC3-LENGTH = VEC3-LENGTH-SQR ** 0.5  *> sqrt(length_squared)
+               COMPUTE VEC3-RESULT-X = VEC3-A-X / VEC3-LENGTH  *> Normalize X
+               COMPUTE VEC3-RESULT-Y = VEC3-A-Y / VEC3-LENGTH  *> Normalize Y
+               COMPUTE VEC3-RESULT-Z = VEC3-A-Z / VEC3-LENGTH  *> Normalize Z
+           END-IF.
+
+      *> Generate random vector on hemisphere oriented by normal vector
+      *> C++ equivalent: inline vec3 random_on_hemisphere(const vec3& normal)
+      *> Input: VEC3-A contains the normal vector
+      *> Output: VEC3-RESULT contains random unit vector in same hemisphere as normal
+       VEC3-RANDOM-ON-HEMISPHERE.
+      *> Get random unit vector: vec3 on_unit_sphere = random_unit_vector();
+           PERFORM VEC3-RANDOM-UNIT-VECTOR      *> Generate random unit vector
+           
+      *> Save the random unit vector in VEC3-B for dot product calculation
+           MOVE VEC3-RESULT-X TO VEC3-B-X
+           MOVE VEC3-RESULT-Y TO VEC3-B-Y  
+           MOVE VEC3-RESULT-Z TO VEC3-B-Z
+           
+      *> Check if in same hemisphere: if (dot(on_unit_sphere, normal) > 0.0)
+           PERFORM VEC3-CALCULATE-DOT-PRODUCT   *> Calculate dot(VEC3-A, VEC3-B)
+           
+      *> If dot product > 0, vectors are in same hemisphere - keep the vector
+      *> If dot product <= 0, flip the vector: return -on_unit_sphere
+           IF VEC3-DOT-PRODUCT > 0.0
+      *> Same hemisphere - keep original vector
+               MOVE VEC3-B-X TO VEC3-RESULT-X
+               MOVE VEC3-B-Y TO VEC3-RESULT-Y
+               MOVE VEC3-B-Z TO VEC3-RESULT-Z
+           ELSE
+      *> Opposite hemisphere - flip vector
+               COMPUTE VEC3-RESULT-X = -VEC3-B-X
+               COMPUTE VEC3-RESULT-Y = -VEC3-B-Y
+               COMPUTE VEC3-RESULT-Z = -VEC3-B-Z
+           END-IF.
            
       *>****************************************************************
       *> VEC3 OUTPUT PROCEDURES - Display and File Operations         *
@@ -1087,9 +1228,16 @@
            END-IF
            EXIT.
            
-      *> Enhanced sphere hit method with proper root finding
-      *> C++ equivalent: bool hit(const ray& r, double ray_tmin, double ray_tmax, hit_record& rec) const override
-      *> This replaces HITTABLE-HIT-SPHERE with full C++ algorithm implementation
+      *> COBOL EDUCATIONAL NOTE - MATHEMATICAL ALGORITHM TRANSLATION:
+      *> Ray-sphere intersection uses quadratic formula: at² + bt + c = 0
+      *> C++ can use compact expressions: auto discriminant = h*h - a*c;
+      *> 
+      *> COBOL requires explicit step-by-step calculation:
+      *> 1. Calculate coefficients a, h, c separately
+      *> 2. Compute discriminant as separate operation  
+      *> 3. Test conditions in explicit IF statements
+      *>
+      *> This verbosity actually makes the algorithm more readable!
        SPHERE-HIT-ENHANCED.
       *> Copy sphere data from hittable object to working variables
            MOVE SPHERE-OBJ-CENTER-X OF HITTABLE-OBJECT 
