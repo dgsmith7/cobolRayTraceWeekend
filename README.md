@@ -3,6 +3,8 @@
 A Cobol implementation of the project covered in Ray Tracing in One Weekend by Peter Shirley.
 https://raytracing.github.io/books/RayTracingInOneWeekend.html
 
+## Overview
+
 I am using gnuCobol on a macbook pro M3 with pro chip.
 
 This will be an interesting project because Cobol is not an object-oriented language, so I will have to simulate classes and inheritance with data structures and procedural code. There is no inheritnce, no abstract classes, etc., all of which are used in this project. So it will be interesting to see one can implement these concepts in Cobol.
@@ -17,7 +19,7 @@ All of the ppm image files generated with the code, in general, are named to ref
 
 I have worked with the AI assistant to annotate the code with educational notes about Cobol where appropriate, so it is woth looking over the code for those notes.
 
-Result:
+## Result:
 
 We completed chapter 8. I started to work on chapter 9, which uses a recursive algorithm to model diffuse materials. Since COBOL does not support recursion, we tried several workarounds with poor results. Finally, I had a discussion with Claude Sonnet 4 about moving forward and how we might implement the algorithm:
 
