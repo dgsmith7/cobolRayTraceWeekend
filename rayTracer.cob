@@ -18,17 +18,20 @@
        FD  OUTPUT-FILE.
        01  OUTPUT-RECORD           PIC X(80).  *> 80-char output record
        
-       WORKING-STORAGE SECTION. *> Image dimensions and PPM format constants  
-       01  IMAGE-WIDTH             PIC 9(3) VALUE 400.  *> Image width in pixels
-      *> (updated from tutorial)
-       01  IMAGE-HEIGHT            PIC 9(3).            *> Image height (calculated
-      *> from aspect ratio)
+       WORKING-STORAGE SECTION. 
+      *> PPM format constants  
        01  MAX-COLOR-VALUE         PIC 9(3) VALUE 255.  *> Max RGB value for PPM
        
       *> Loop iteration variables
        01  LOOP-COUNTERS.
            05  I                   PIC 9(3) VALUE 0.  *> X-axis pixel counter
            05  J                   PIC 9(3) VALUE 0.  *> Y-axis pixel counter
+           05  SAMPLE              PIC 9(3) VALUE 0.  *> Sample counter for antialiasing
+           
+      *> Sample offset working variables (for random sampling)
+       01  SAMPLE-WORK-VARS.
+           05  SAMPLE-OFFSET-X     PIC S9V9(6) COMP-3. *> Random X offset [-0.5, +0.5]
+           05  SAMPLE-OFFSET-Y     PIC S9V9(6) COMP-3. *> Random Y offset [-0.5, +0.5]
        
       *> Floating-point color values (0.0 to 1.0)
        01  COLOR-VALUES.
@@ -101,9 +104,9 @@
       *>****************************************************************
       *> Color structures (equivalent to color alias for vec3)
        01  PIXEL-COLOR.                        *> Current pixel color
-           05  PIXEL-COLOR-R       PIC 9V9(6) COMP-3.  *> Red component (0.0-1.0)
-           05  PIXEL-COLOR-G       PIC 9V9(6) COMP-3.  *> Green component (0.0-1.0)
-           05  PIXEL-COLOR-B       PIC 9V9(6) COMP-3.  *> Blue component (0.0-1.0)
+           05  PIXEL-COLOR-R       PIC 999V9(6) COMP-3.  *> Red component (accumulates samples, then scaled)
+           05  PIXEL-COLOR-G       PIC 999V9(6) COMP-3.  *> Green component (accumulates samples, then scaled)
+           05  PIXEL-COLOR-B       PIC 999V9(6) COMP-3.  *> Blue component (accumulates samples, then scaled)
            
       *> Color output working variables
        01  COLOR-WORK-VARS.
@@ -145,47 +148,59 @@
            05  RAY-POINT-Z         PIC S9V9(6) COMP-3.  *> Calculated point Z
            
       *>****************************************************************
-      *> CAMERA DATA STRUCTURES - 3D Camera and Viewport Support       *
+      *> CAMERA CLASS - Ray Generation and Rendering                   *
       *>****************************************************************
-      *> Camera parameters (equivalent to camera setup variables)
+      *> COBOL implementation of C++ camera class with public parameters
+      *> and methods: initialize(), render(), get_ray(), ray_color()
+      *> 
+      *> Public Camera Parameters (equivalent to C++ public variables)
+      *> These can be modified before calling render()
+       01  CAMERA-PUBLIC-PARAMS.
+           05  ASPECT-RATIO        PIC 9V9(6) COMP-3 VALUE 1.0.      *> Ratio of image width over height
+           05  IMAGE-WIDTH         PIC 9(3) VALUE 100.                *> Rendered image width in pixel count
+           05  SAMPLES-PER-PIXEL   PIC 9(3) VALUE 10.                 *> Count of random samples for each pixel
+           
+      *> Private Camera Variables (equivalent to C++ private variables)
+      *> These are calculated internally by initialize()
+       01  CAMERA-PRIVATE-VARS.
+           05  IMAGE-HEIGHT        PIC 9(3).                          *> Rendered image height (calculated)
+           05  PIXEL-SAMPLES-SCALE PIC 9V9(6) COMP-3.                *> Color scale factor for sum of pixel samples
+           05  CENTER-X            PIC S9V9(6) COMP-3.                *> Camera center X (calculated) 
+           05  CENTER-Y            PIC S9V9(6) COMP-3.                *> Camera center Y (calculated)
+           05  CENTER-Z            PIC S9V9(6) COMP-3.                *> Camera center Z (calculated)
+           05  PIXEL00-LOC-X       PIC S9V9(6) COMP-3.                *> Location of pixel 0,0 X
+           05  PIXEL00-LOC-Y       PIC S9V9(6) COMP-3.                *> Location of pixel 0,0 Y  
+           05  PIXEL00-LOC-Z       PIC S9V9(6) COMP-3.                *> Location of pixel 0,0 Z
+           05  PIXEL-DELTA-U-X     PIC S9V9(6) COMP-3.                *> Offset to pixel to the right X
+           05  PIXEL-DELTA-U-Y     PIC S9V9(6) COMP-3.                *> Offset to pixel to the right Y
+           05  PIXEL-DELTA-U-Z     PIC S9V9(6) COMP-3.                *> Offset to pixel to the right Z
+           05  PIXEL-DELTA-V-X     PIC S9V9(6) COMP-3.                *> Offset to pixel below X
+           05  PIXEL-DELTA-V-Y     PIC S9V9(6) COMP-3.                *> Offset to pixel below Y
+           05  PIXEL-DELTA-V-Z     PIC S9V9(6) COMP-3.                *> Offset to pixel below Z
+           
+      *> Legacy support structures (for backward compatibility)
        01  CAMERA-PARAMS.
-           05  ASPECT-RATIO        PIC 9V9(6) COMP-3 VALUE 1.777777.  *> 16/9 aspect ratio
            05  FOCAL-LENGTH        PIC 9V9(6) COMP-3 VALUE 1.0.      *> Camera focal length
            05  VIEWPORT-HEIGHT     PIC 9V9(6) COMP-3 VALUE 2.0.      *> Viewport height
            05  VIEWPORT-WIDTH      PIC 9V9(6) COMP-3.                *> Calculated viewport width
            
-      *> Camera center point (equivalent to camera_center)
+      *> Legacy camera center (for backward compatibility)
        01  CAMERA-CENTER.
            05  CAMERA-CENTER-X     PIC S9V9(6) COMP-3 VALUE 0.0.     *> Camera X position
            05  CAMERA-CENTER-Y     PIC S9V9(6) COMP-3 VALUE 0.0.     *> Camera Y position
            05  CAMERA-CENTER-Z     PIC S9V9(6) COMP-3 VALUE 0.0.     *> Camera Z position
            
-      *> Viewport vectors (equivalent to viewport_u, viewport_v)
-       01  VIEWPORT-VECTORS.
+      *> Working variables for viewport calculations
+       01  VIEWPORT-WORK-VARS.
            05  VIEWPORT-U-X        PIC S9V9(6) COMP-3.               *> U vector X component
            05  VIEWPORT-U-Y        PIC S9V9(6) COMP-3 VALUE 0.0.     *> U vector Y component
            05  VIEWPORT-U-Z        PIC S9V9(6) COMP-3 VALUE 0.0.     *> U vector Z component
            05  VIEWPORT-V-X        PIC S9V9(6) COMP-3 VALUE 0.0.     *> V vector X component
            05  VIEWPORT-V-Y        PIC S9V9(6) COMP-3.               *> V vector Y component
            05  VIEWPORT-V-Z        PIC S9V9(6) COMP-3 VALUE 0.0.     *> V vector Z component
-               
-      *> Pixel delta vectors (equivalent to pixel_delta_u, pixel_delta_v)
-       01  PIXEL-DELTAS.
-           05  PIXEL-DELTA-U-X     PIC S9V9(6) COMP-3.               *> Delta U X component
-           05  PIXEL-DELTA-U-Y     PIC S9V9(6) COMP-3.               *> Delta U Y component
-           05  PIXEL-DELTA-U-Z     PIC S9V9(6) COMP-3.               *> Delta U Z component
-           05  PIXEL-DELTA-V-X     PIC S9V9(6) COMP-3.               *> Delta V X component
-           05  PIXEL-DELTA-V-Y     PIC S9V9(6) COMP-3.               *> Delta V Y component
-           05  PIXEL-DELTA-V-Z     PIC S9V9(6) COMP-3.               *> Delta V Z component
-               
-      *> Viewport positioning (equivalent to viewport_upper_left, pixel00_loc)
-       01  VIEWPORT-POSITIONS.
            05  VIEWPORT-UL-X       PIC S9V9(6) COMP-3.               *> Upper left X
            05  VIEWPORT-UL-Y       PIC S9V9(6) COMP-3.               *> Upper left Y
            05  VIEWPORT-UL-Z       PIC S9V9(6) COMP-3.               *> Upper left Z
-           05  PIXEL00-X           PIC S9V9(6) COMP-3.               *> Pixel (0,0) X
-           05  PIXEL00-Y           PIC S9V9(6) COMP-3.               *> Pixel (0,0) Y
-           05  PIXEL00-Z           PIC S9V9(6) COMP-3.               *> Pixel (0,0) Z
                
       *> Current pixel calculations
        01  PIXEL-CALCULATIONS.
@@ -215,8 +230,6 @@
            05  SPHERE-H            PIC S9(3)V9(6) COMP-3.           *> Dot product of direction and oc
            05  SPHERE-C            PIC S9(6)V9(6) COMP-3.           *> oc.length_squared - radius²
            05  SPHERE-DISCRIMINANT PIC S9(6)V9(6) COMP-3.           *> h²-ac discriminant
-           05  SPHERE-HIT-FLAG     PIC 9 VALUE 0.                    *> 1=hit, 0=miss
-           05  SPHERE-HIT-T        PIC S9V9(6) COMP-3.               *> Hit distance (t parameter)
            
       *>****************************************************************
       *> HITTABLE ABSTRACT CLASS - Polymorphic Object System           *
@@ -248,8 +261,9 @@
                10  FILLER              PIC X(10).             *> Adjust padding             
    *> Ray intersection parameters (equivalent to function parameters)
        01  HITTABLE-HIT-PARAMS.
-           05  HIT-RAY-TMIN        PIC S9(3)V9(6) COMP-3.  *> Allow larger range
-           05  HIT-RAY-TMAX        PIC S9(6)V9(6) COMP-3.  *> Allow much larger range for infinity
+           05  HIT-RAY-T.                              *> Ray t interval parameter
+               10  HIT-RAY-T-MIN   PIC S9(6)V9(6) COMP-3.  *> Minimum t value
+               10  HIT-RAY-T-MAX   PIC S9(6)V9(6) COMP-3.  *> Maximum t value
            05  HIT-RESULT          PIC 9 VALUE 0.          *> Return value: 1=hit, 0=miss           
       *>****************************************************************
       *> SPHERE CLASS - Concrete Hittable Implementation               *
@@ -316,6 +330,39 @@
            05  INFINITY-VALUE      PIC 9(6) COMP-3 VALUE 999999.
            05 DEGREES-TO-RAD PIC 9V9(15) COMP-3 VALUE 0.017453292519943.
            
+      *>****************************************************************
+      *> INTERVAL CLASS - Range/Interval Mathematical Operations       *
+      *>****************************************************************
+      *> Interval data structure (equivalent to interval class)
+      *> Represents a mathematical interval [min, max] with range operations
+       01  INTERVAL-DATA.                        *> Primary interval structure
+           05  INTERVAL-MIN        PIC S9(6)V9(6) COMP-3.  *> Minimum bound of interval
+           05  INTERVAL-MAX        PIC S9(6)V9(6) COMP-3.  *> Maximum bound of interval
+           
+      *> Secondary interval for calculations (equivalent to multiple interval objects)
+       01  INTERVAL-TEMP.                        *> Temporary interval structure
+           05  INTERVAL-TEMP-MIN   PIC S9(6)V9(6) COMP-3.  *> Temp minimum bound
+           05  INTERVAL-TEMP-MAX   PIC S9(6)V9(6) COMP-3.  *> Temp maximum bound
+           
+      *> Interval calculation working variables
+       01  INTERVAL-WORK-VARS.
+           05  INTERVAL-SIZE       PIC S9(6)V9(6) COMP-3.  *> Size of interval (max - min)
+           05  INTERVAL-TEST-VALUE PIC S9(6)V9(6) COMP-3.  *> Value to test against interval
+           05  INTERVAL-CONTAINS   PIC 9 VALUE 0.          *> 1=value contained, 0=not contained
+           05  INTERVAL-SURROUNDS  PIC 9 VALUE 0.          *> 1=value surrounded, 0=not surrounded
+           
+      *> Predefined interval constants (equivalent to static const intervals)
+       01  INTERVAL-CONSTANTS.
+           05  EMPTY-INTERVAL.                             *> Empty interval (+inf, -inf)
+               10  EMPTY-MIN       PIC S9(6)V9(6) COMP-3 VALUE +999999.
+               10  EMPTY-MAX       PIC S9(6)V9(6) COMP-3 VALUE -999999.
+           05  UNIVERSE-INTERVAL.                          *> Universe interval (-inf, +inf)
+               10  UNIVERSE-MIN    PIC S9(6)V9(6) COMP-3 VALUE -999999.
+               10  UNIVERSE-MAX    PIC S9(6)V9(6) COMP-3 VALUE +999999.
+           05  INTENSITY-INTERVAL.                         *> Color intensity interval [0.000, 0.999]
+               10  INTENSITY-MIN   PIC S9(6)V9(6) COMP-3 VALUE 0.000.
+               10  INTENSITY-MAX   PIC S9(6)V9(6) COMP-3 VALUE 0.999.
+           
       *> Utility function working variables
        01  UTILITY-WORK-VARS.
            05  DEGREES-INPUT       PIC S9V9(6) COMP-3.                         *> Input degrees value
@@ -327,11 +374,10 @@
       *> Main program execution flow                                  *
       *>****************************************************************
        MAIN-PROGRAM.
-           PERFORM OPEN-OUTPUT-FILE     *> Open PPM file for writing
-           PERFORM INITIALIZE-VALUES    *> Set up calculation constants
-           PERFORM OUTPUT-HEADER        *> Write PPM file header
-           PERFORM RENDER-IMAGE         *> Generate pixel data with progress
-           PERFORM CLOSE-OUTPUT-FILE    *> Close the output file
+      *> Create camera and set up world (equivalent to C++ main)
+           PERFORM CAMERA-SET-DEFAULTS      *> Set camera public parameters
+           PERFORM WORLD-SETUP              *> Create world with spheres
+           PERFORM CAMERA-RENDER            *> Camera handles everything else
            DISPLAY "PPM file 'image.ppm' created successfully!"
            STOP RUN.
        
@@ -339,18 +385,21 @@
        OPEN-OUTPUT-FILE.
            OPEN OUTPUT OUTPUT-FILE.     *> Open file for writing
        
+      *> Camera set defaults - equivalent to setting public parameters in C++
+      *> C++ equivalent: camera cam; cam.aspect_ratio = 16.0/9.0; cam.image_width = 400; cam.samples_per_pixel = 100;
+       CAMERA-SET-DEFAULTS.
+      *> Set public camera parameters (can be overridden by user)
+           MOVE 1.777777 TO ASPECT-RATIO        *> 16/9 aspect ratio (16.0/9.0)  
+           MOVE 400 TO IMAGE-WIDTH              *> Rendered image width 
+           MOVE 100 TO SAMPLES-PER-PIXEL        *> DEBUG: Back to 100 samples to see what's wrong
+           EXIT.
+           
        CLOSE-OUTPUT-FILE.
            CLOSE OUTPUT-FILE.           *> Close and finalize file
        
-      *> Initialize camera system and image parameters
-       INITIALIZE-VALUES.
-      *> Calculate image height from aspect ratio (16:9)
-      *> Ensure height is at least 1 pixel
-           COMPUTE IMAGE-HEIGHT = IMAGE-WIDTH / ASPECT-RATIO
-           IF IMAGE-HEIGHT < 1
-               MOVE 1 TO IMAGE-HEIGHT
-           END-IF
-           
+      *> World setup - separate from camera (equivalent to C++ main world creation)
+      *> C++ equivalent: hittable_list world; world.add(...);
+       WORLD-SETUP.
       *>****************************************************************
       *> WORLD SETUP - Create scene with multiple spheres             *
       *>****************************************************************
@@ -372,53 +421,83 @@
            MOVE 100.0 TO VEC3-SCALAR               *> Large ground sphere radius
            PERFORM HITTABLE-LIST-ADD-SPHERE        *> Add ground sphere to world
            
-           DISPLAY "World created with " HITTABLE-COUNT OF HITTABLE-LIST " objects"      
-      *>****************************************************************
-      *> CAMERA SETUP - Camera and viewport calculations               *
-      *>****************************************************************
+           DISPLAY "World created with " HITTABLE-COUNT OF HITTABLE-LIST " objects"
+           EXIT.
            
-      *>> Calculate viewport width from height and image aspect ratio
+      *>****************************************************************
+      *> CAMERA CLASS METHODS - Public and Private Methods             *
+      *>****************************************************************
+      
+      *> Camera initialize() method - prepares camera for rendering
+      *> C++ equivalent: void initialize() (private method)
+      *> Called automatically at start of render()
+       CAMERA-INITIALIZE.
+      *> Calculate image height from aspect ratio
+      *> image_height = int(image_width / aspect_ratio);
+      *> image_height = (image_height < 1) ? 1 : image_height;
+           COMPUTE IMAGE-HEIGHT = IMAGE-WIDTH / ASPECT-RATIO
+           IF IMAGE-HEIGHT < 1
+               MOVE 1 TO IMAGE-HEIGHT
+           END-IF
+           
+      *> pixel_samples_scale = 1.0 / samples_per_pixel;
+           COMPUTE PIXEL-SAMPLES-SCALE = 1.0 / SAMPLES-PER-PIXEL
+           
+      *> Set camera center
+      *> center = point3(0, 0, 0);
+           MOVE 0.0 TO CENTER-X
+           MOVE 0.0 TO CENTER-Y  
+           MOVE 0.0 TO CENTER-Z
+           
+      *> Determine viewport dimensions
+      *> auto focal_length = 1.0;
+      *> auto viewport_height = 2.0;
+      *> auto viewport_width = viewport_height * (double(image_width)/image_height);
+           MOVE 1.0 TO FOCAL-LENGTH
+           MOVE 2.0 TO VIEWPORT-HEIGHT
            COMPUTE VIEWPORT-WIDTH = VIEWPORT-HEIGHT * 
                                    (IMAGE-WIDTH / IMAGE-HEIGHT)
-                                   
-      *> Set up viewport vectors
-      *> viewport_u = vec3(viewport_width, 0, 0)
+           
+      *> Calculate the vectors across the horizontal and down the vertical viewport edges
+      *> auto viewport_u = vec3(viewport_width, 0, 0);
+      *> auto viewport_v = vec3(0, -viewport_height, 0);
            MOVE VIEWPORT-WIDTH TO VIEWPORT-U-X
            MOVE 0 TO VIEWPORT-U-Y
            MOVE 0 TO VIEWPORT-U-Z
            
-      *> viewport_v = vec3(0, -viewport_height, 0) 
            MOVE 0 TO VIEWPORT-V-X
            COMPUTE VIEWPORT-V-Y = -VIEWPORT-HEIGHT  *> Negative for screen coordinates
            MOVE 0 TO VIEWPORT-V-Z
            
-      *> Calculate pixel delta vectors (spacing between pixels)
-      *> pixel_delta_u = viewport_u / image_width
-           COMPUTE PIXEL-DELTA-U-X = VIEWPORT-U-X / IMAGE-WIDTH
-           COMPUTE PIXEL-DELTA-U-Y = VIEWPORT-U-Y / IMAGE-WIDTH  
-           COMPUTE PIXEL-DELTA-U-Z = VIEWPORT-U-Z / IMAGE-WIDTH
+      *> Calculate the horizontal and vertical delta vectors from pixel to pixel
+      *> pixel_delta_u = viewport_u / image_width;
+      *> pixel_delta_v = viewport_v / image_height;
+           COMPUTE PIXEL-DELTA-U-X OF CAMERA-PRIVATE-VARS = VIEWPORT-U-X / IMAGE-WIDTH
+           COMPUTE PIXEL-DELTA-U-Y OF CAMERA-PRIVATE-VARS = VIEWPORT-U-Y / IMAGE-WIDTH  
+           COMPUTE PIXEL-DELTA-U-Z OF CAMERA-PRIVATE-VARS = VIEWPORT-U-Z / IMAGE-WIDTH
            
-      *> pixel_delta_v = viewport_v / image_height
-           COMPUTE PIXEL-DELTA-V-X = VIEWPORT-V-X / IMAGE-HEIGHT
-           COMPUTE PIXEL-DELTA-V-Y = VIEWPORT-V-Y / IMAGE-HEIGHT
-           COMPUTE PIXEL-DELTA-V-Z = VIEWPORT-V-Z / IMAGE-HEIGHT
+           COMPUTE PIXEL-DELTA-V-X OF CAMERA-PRIVATE-VARS = VIEWPORT-V-X / IMAGE-HEIGHT
+           COMPUTE PIXEL-DELTA-V-Y OF CAMERA-PRIVATE-VARS = VIEWPORT-V-Y / IMAGE-HEIGHT
+           COMPUTE PIXEL-DELTA-V-Z OF CAMERA-PRIVATE-VARS = VIEWPORT-V-Z / IMAGE-HEIGHT
            
-      *> Calculate viewport upper left corner
-      *> viewport_upper_left = camera_center - vec3(0,0,focal_length) - viewport_u/2 - viewport_v/2
-           COMPUTE VIEWPORT-UL-X = CAMERA-CENTER-X - 
-                  (VIEWPORT-U-X / 2)
-           COMPUTE VIEWPORT-UL-Y = CAMERA-CENTER-Y - 
-                  (VIEWPORT-V-Y / 2)
-           COMPUTE VIEWPORT-UL-Z = CAMERA-CENTER-Z - FOCAL-LENGTH
+      *> Calculate the location of the upper left pixel
+      *> auto viewport_upper_left = center - vec3(0,0,focal_length) - viewport_u/2 - viewport_v/2;
+      *> pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v);
+           COMPUTE VIEWPORT-UL-X = CENTER-X - 0 - (VIEWPORT-U-X / 2)
+           COMPUTE VIEWPORT-UL-Y = CENTER-Y - 0 - (VIEWPORT-V-Y / 2)  
+           COMPUTE VIEWPORT-UL-Z = CENTER-Z - FOCAL-LENGTH - 0
            
-      *> Calculate pixel (0,0) location 
-      *> pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v)
-           COMPUTE PIXEL00-X = VIEWPORT-UL-X + 
-                  0.5 * (PIXEL-DELTA-U-X + PIXEL-DELTA-V-X)
-           COMPUTE PIXEL00-Y = VIEWPORT-UL-Y + 
-                  0.5 * (PIXEL-DELTA-U-Y + PIXEL-DELTA-V-Y)
-           COMPUTE PIXEL00-Z = VIEWPORT-UL-Z + 
-                  0.5 * (PIXEL-DELTA-U-Z + PIXEL-DELTA-V-Z)
+           COMPUTE PIXEL00-LOC-X = VIEWPORT-UL-X + 
+                  0.5 * (PIXEL-DELTA-U-X OF CAMERA-PRIVATE-VARS + PIXEL-DELTA-V-X OF CAMERA-PRIVATE-VARS)
+           COMPUTE PIXEL00-LOC-Y = VIEWPORT-UL-Y + 
+                  0.5 * (PIXEL-DELTA-U-Y OF CAMERA-PRIVATE-VARS + PIXEL-DELTA-V-Y OF CAMERA-PRIVATE-VARS)
+           COMPUTE PIXEL00-LOC-Z = VIEWPORT-UL-Z + 
+                  0.5 * (PIXEL-DELTA-U-Z OF CAMERA-PRIVATE-VARS + PIXEL-DELTA-V-Z OF CAMERA-PRIVATE-VARS)
+           
+      *> Copy to legacy variables for compatibility
+           MOVE CENTER-X TO CAMERA-CENTER-X
+           MOVE CENTER-Y TO CAMERA-CENTER-Y
+           MOVE CENTER-Z TO CAMERA-CENTER-Z
            
       *> Legacy calculations for compatibility
            COMPUTE WIDTH-MINUS-1 = IMAGE-WIDTH - 1   *> For normalizing X coords
@@ -434,56 +513,163 @@
                   DELIMITED BY SIZE INTO DIMENSION-LINE
            MOVE DIMENSION-LINE TO OUTPUT-RECORD
            WRITE OUTPUT-RECORD
+
            
            MOVE MAX-COLOR-VALUE TO MAX-COLOR-LINE  *> Maximum color value (255)
            MOVE MAX-COLOR-LINE TO OUTPUT-RECORD
            WRITE OUTPUT-RECORD.
        
-      *> Main image rendering loop - generates gradient pattern
-       RENDER-IMAGE.
+      *> Camera render() method - main public interface
+      *> C++ equivalent: void render(const hittable& world)
+      *> Handles file I/O, initialization, and rendering with antialiasing
+       CAMERA-RENDER.
+      *> Initialize camera (called automatically at start of render)
+           PERFORM CAMERA-INITIALIZE
+           
+      *> Open output file and write header
+           PERFORM OPEN-OUTPUT-FILE
+           PERFORM OUTPUT-HEADER
+           
+      *> Main image rendering loop - generates ray traced image with antialiasing
       *> Outer loop: iterate through each row (Y-axis)
            PERFORM VARYING J FROM 0 BY 1 UNTIL J >= IMAGE-HEIGHT
                PERFORM DISPLAY-PROGRESS     *> Show progress to terminal
       *> Inner loop: iterate through each column (X-axis)
                PERFORM VARYING I FROM 0 BY 1 UNTIL I >= IMAGE-WIDTH
-                   PERFORM CALCULATE-PIXEL-COLOR  *> Calculate RGB values
-                   PERFORM OUTPUT-PIXEL           *> Write pixel to file
+      *> Initialize pixel color accumulator: color pixel_color(0,0,0);
+                   MOVE 0.0 TO PIXEL-COLOR-R
+                   MOVE 0.0 TO PIXEL-COLOR-G  
+                   MOVE 0.0 TO PIXEL-COLOR-B
+      *> Antialiasing sample loop: for (int sample = 0; sample < samples_per_pixel; sample++)
+                   PERFORM VARYING SAMPLE FROM 0 BY 1 UNTIL SAMPLE >= SAMPLES-PER-PIXEL
+                       PERFORM CAMERA-GET-RAY           *> ray r = get_ray(i, j);
+                       PERFORM CAMERA-RAY-COLOR         *> pixel_color += ray_color(r, world);
+      *> Add ray color to pixel color accumulator
+                       COMPUTE PIXEL-COLOR-R = PIXEL-COLOR-R + VEC3-RESULT-X
+                       COMPUTE PIXEL-COLOR-G = PIXEL-COLOR-G + VEC3-RESULT-Y
+                       COMPUTE PIXEL-COLOR-B = PIXEL-COLOR-B + VEC3-RESULT-Z
+                   END-PERFORM
+      *> C++ equivalent: write_color(std::cout, pixel_samples_scale * pixel_color);
+      *> Apply pixel samples scaling: pixel_samples_scale * pixel_color
+                   COMPUTE PIXEL-COLOR-R = PIXEL-SAMPLES-SCALE * PIXEL-COLOR-R
+                   COMPUTE PIXEL-COLOR-G = PIXEL-SAMPLES-SCALE * PIXEL-COLOR-G
+                   COMPUTE PIXEL-COLOR-B = PIXEL-SAMPLES-SCALE * PIXEL-COLOR-B
+                   PERFORM OUTPUT-PIXEL             *> write_color(std::cout, averaged_pixel_color);
                END-PERFORM
            END-PERFORM
            PERFORM DISPLAY-COMPLETION.      *> Show completion message
+           
+      *> Close output file 
+           PERFORM CLOSE-OUTPUT-FILE
+           EXIT.
        
-      *> Calculate RGB values for current pixel using ray tracing
-       CALCULATE-PIXEL-COLOR.
-      *> Calculate pixel center in 3D space
-      *> pixel_center = pixel00_loc + (i * pixel_delta_u) + (j * pixel_delta_v)
-           COMPUTE PIXEL-CENTER-X = PIXEL00-X + 
-                  (I * PIXEL-DELTA-U-X) + (J * PIXEL-DELTA-V-X)
-           COMPUTE PIXEL-CENTER-Y = PIXEL00-Y + 
-                  (I * PIXEL-DELTA-U-Y) + (J * PIXEL-DELTA-V-Y)
-           COMPUTE PIXEL-CENTER-Z = PIXEL00-Z + 
-                  (I * PIXEL-DELTA-U-Z) + (J * PIXEL-DELTA-V-Z)
+      *> Camera get_ray() method - generates ray for given pixel with random sampling
+      *> C++ equivalent: ray get_ray(int i, int j) const (private method)
+      *> Input: I, J contain pixel coordinates      *> Output: RAY-DATA contains the generated ray
+       CAMERA-GET-RAY.
+      *> Construct a camera ray originating from the origin and directed at randomly sampled
+      *> point around the pixel location i, j.
+      *> auto offset = sample_square();
+           PERFORM SAMPLE-SQUARE
            
-      *> Calculate ray direction from camera center to pixel center
-      *> ray_direction = pixel_center - camera_center
-           COMPUTE RAY-DIR-CALC-X = PIXEL-CENTER-X - CAMERA-CENTER-X
-           COMPUTE RAY-DIR-CALC-Y = PIXEL-CENTER-Y - CAMERA-CENTER-Y
-           COMPUTE RAY-DIR-CALC-Z = PIXEL-CENTER-Z - CAMERA-CENTER-Z
+      *> auto pixel_sample = pixel00_loc + ((i + offset.x()) * pixel_delta_u) + ((j + offset.y()) * pixel_delta_v);
+           COMPUTE PIXEL-CENTER-X = PIXEL00-LOC-X + 
+                  ((I + SAMPLE-OFFSET-X) * PIXEL-DELTA-U-X OF CAMERA-PRIVATE-VARS) + 
+                  ((J + SAMPLE-OFFSET-Y) * PIXEL-DELTA-V-X OF CAMERA-PRIVATE-VARS)
+           COMPUTE PIXEL-CENTER-Y = PIXEL00-LOC-Y + 
+                  ((I + SAMPLE-OFFSET-X) * PIXEL-DELTA-U-Y OF CAMERA-PRIVATE-VARS) + 
+                  ((J + SAMPLE-OFFSET-Y) * PIXEL-DELTA-V-Y OF CAMERA-PRIVATE-VARS)
+           COMPUTE PIXEL-CENTER-Z = PIXEL00-LOC-Z + 
+                  ((I + SAMPLE-OFFSET-X) * PIXEL-DELTA-U-Z OF CAMERA-PRIVATE-VARS) + 
+                  ((J + SAMPLE-OFFSET-Y) * PIXEL-DELTA-V-Z OF CAMERA-PRIVATE-VARS)
            
-      *> Set up ray with camera center as origin and calculated direction
-      *> ray r(camera_center, ray_direction)
-           MOVE CAMERA-CENTER-X TO VEC3-A-X    *> Origin = camera center
-           MOVE CAMERA-CENTER-Y TO VEC3-A-Y
-           MOVE CAMERA-CENTER-Z TO VEC3-A-Z
+      *> auto ray_origin = center;
+      *> auto ray_direction = pixel_sample - ray_origin;
+           COMPUTE RAY-DIR-CALC-X = PIXEL-CENTER-X - CENTER-X
+           COMPUTE RAY-DIR-CALC-Y = PIXEL-CENTER-Y - CENTER-Y
+           COMPUTE RAY-DIR-CALC-Z = PIXEL-CENTER-Z - CENTER-Z
+           
+      *> return ray(ray_origin, ray_direction);
+           MOVE CENTER-X TO VEC3-A-X    *> Origin = camera center
+           MOVE CENTER-Y TO VEC3-A-Y
+           MOVE CENTER-Z TO VEC3-A-Z
            MOVE RAY-DIR-CALC-X TO VEC3-B-X      *> Direction = calculated direction
            MOVE RAY-DIR-CALC-Y TO VEC3-B-Y
            MOVE RAY-DIR-CALC-Z TO VEC3-B-Z
            PERFORM RAY-CONSTRUCT-WITH-PARAMS    *> Create the ray
+           EXIT.
            
-      *> Get pixel color using ray_color function
-      *> color pixel_color = ray_color(r)
-           PERFORM RAY-COLOR-FUNCTION           *> Calculate color for this ray
+      *> Sample square method - returns random offset in [-0.5, +0.5] square
+      *> C++ equivalent: vec3 sample_square() const (private method)
+      *> Output: SAMPLE-OFFSET-X, SAMPLE-OFFSET-Y contain random offsets
+       SAMPLE-SQUARE.
+      *> Returns the vector to a random point in the [-0.5,-0.5]-[+0.5,+0.5] unit square.
+      *> return vec3(random_double() - 0.5, random_double() - 0.5, 0);
+           PERFORM RANDOM-DOUBLE                *> Generate first random number
+           COMPUTE SAMPLE-OFFSET-X = VEC3-SCALAR - 0.5  *> X offset: random() - 0.5
            
-      *> Result is now in PIXEL-COLOR, ready for output
+           PERFORM RANDOM-DOUBLE                *> Generate second random number  
+           COMPUTE SAMPLE-OFFSET-Y = VEC3-SCALAR - 0.5  *> Y offset: random() - 0.5
+           EXIT.
+           
+      *> Camera ray_color() method - calculates color for a ray
+      *> C++ equivalent: color ray_color(const ray& r, const hittable& world) const (private method)
+      *> Input: RAY-DATA contains the ray to process
+      *> Output: VEC3-RESULT contains the calculated color (for accumulation in render loop)
+       CAMERA-RAY-COLOR.
+      *> Test ray against world objects using hittable list
+      *> hit_record rec;
+      *> if (world.hit(r, interval(0, infinity), rec))
+           MOVE 0.0 TO HIT-RAY-T-MIN               *> Use 0 as per C++ pseudocode
+           MOVE INFINITY-VALUE TO HIT-RAY-T-MAX    *> Use infinity constant
+           PERFORM HITTABLE-LIST-HIT               *> Test against world
+           
+      *> If ray hits any object in world, use surface normal for coloring
+           IF HIT-RESULT = 1 AND HIT-OCCURRED = 1
+      *> return 0.5 * (rec.normal + color(1,1,1))
+      *> Add (1,1,1) to normal to shift from [-1,1] to [0,2], then scale by 0.5 to get [0,1]
+               COMPUTE VEC3-RESULT-X = 0.5 * (HIT-NORMAL-X + 1.0)
+               COMPUTE VEC3-RESULT-Y = 0.5 * (HIT-NORMAL-Y + 1.0)
+               COMPUTE VEC3-RESULT-Z = 0.5 * (HIT-NORMAL-Z + 1.0)
+           ELSE
+      *> Otherwise render sky gradient (existing code)
+      *> Get the ray direction and normalize it to unit vector
+      *> vec3 unit_direction = unit_vector(r.direction());
+               MOVE RAY-DIR-X TO VEC3-A-X        *> Copy ray direction to VEC3-A
+               MOVE RAY-DIR-Y TO VEC3-A-Y
+               MOVE RAY-DIR-Z TO VEC3-A-Z
+               PERFORM VEC3-UNIT-VECTOR-A        *> Calculate unit vector (result in VEC3-RESULT)
+               
+      *> Calculate interpolation parameter based on Y component
+      *> auto a = 0.5*(unit_direction.y() + 1.0);
+      *> This maps Y from [-1,1] to a from [0,1]
+               COMPUTE VEC3-SCALAR = 0.5 * (VEC3-RESULT-Y + 1.0)
+               
+      *> Linear interpolation between white and light blue
+      *> return (1.0-a)*color(1.0, 1.0, 1.0) + a*color(0.5, 0.7, 1.0);
+      *> White color when a=0 (Y=-1, looking down)
+      *> Blue color when a=1 (Y=+1, looking up)
+      
+      *> Calculate (1.0-a) for white component weight
+               COMPUTE VEC3-TEMP-CALC = 1.0 - VEC3-SCALAR
+               
+      *> Calculate final color components using linear interpolation
+      *> Red:   (1-a)*1.0 + a*0.5 = (1-a) + 0.5*a
+               COMPUTE VEC3-RESULT-X = VEC3-TEMP-CALC * 1.0 + 
+                                       VEC3-SCALAR * 0.5
+               
+      *> Green: (1-a)*1.0 + a*0.7 = (1-a) + 0.7*a  
+               COMPUTE VEC3-RESULT-Y = VEC3-TEMP-CALC * 1.0 + 
+                                       VEC3-SCALAR * 0.7
+               
+      *> Blue:  (1-a)*1.0 + a*1.0 = (1-a) + a = 1.0 (always full blue)
+               COMPUTE VEC3-RESULT-Z = VEC3-TEMP-CALC * 1.0 + 
+                                       VEC3-SCALAR * 1.0
+           END-IF
+           
+      *> Result: Creates sphere with surface normal shading on sky gradient background
+      *> - Sphere hit: Color based on surface normal direction (creates 3D shading effect)
+      *> - Sky background: White to blue gradient based on ray direction
            EXIT.
        
       *> Write pixel color to PPM file using write_color function
@@ -703,19 +889,32 @@
       *> This is the main color output function from the C++ tutorial
       *> Input: PIXEL-COLOR contains color components (0.0-1.0 range)
       *> Output: Writes RGB bytes (0-255 range) to PPM file
+      *> C++ equivalent: write_color(std::ostream& out, const color& pixel_color)
        WRITE-COLOR-TO-FILE.
-      *> Get RGB components from pixel color (equivalent to pixel_color.x(), y(), z())
-           MOVE PIXEL-COLOR-R TO TEMP-R        *> Extract red component
-           MOVE PIXEL-COLOR-G TO TEMP-G        *> Extract green component
-           MOVE PIXEL-COLOR-B TO B             *> Extract blue component
+      *> Input: PIXEL-COLOR contains pre-averaged color (already scaled by pixel_samples_scale)
+      *> C++ equivalent: write_color(std::cout, const color& pixel_color)
+      
+      *> Set up intensity interval for clamping [0.000, 0.999]
+      *> C++ equivalent: static const interval intensity(0.000, 0.999);
+           MOVE INTENSITY-MIN TO INTERVAL-MIN  *> Set interval min = 0.000
+           MOVE INTENSITY-MAX TO INTERVAL-MAX  *> Set interval max = 0.999
            
-      *> Translate [0,1] component values to byte range [0,255]
-      *> Uses same 255.999 multiplier as C++ version for proper rounding
-           COMPUTE COLOR-R-BYTE = 255.999 * TEMP-R    *> rbyte = int(255.999 * r)
-           COMPUTE COLOR-G-BYTE = 255.999 * TEMP-G    *> gbyte = int(255.999 * g)  
-           COMPUTE COLOR-B-BYTE = 255.999 * B         *> bbyte = int(255.999 * b)
+      *> Get RGB components and clamp each to intensity interval
+      *> C++ equivalent: auto r = pixel_color.x(); int rbyte = int(256 * intensity.clamp(r));
+           MOVE PIXEL-COLOR-R TO INTERVAL-TEST-VALUE  *> r = pixel_color.x()
+           PERFORM INTERVAL-CLAMP                     *> intensity.clamp(r)
+           COMPUTE COLOR-R-BYTE = 256 * INTERVAL-TEST-VALUE  *> rbyte = int(256 * clamped_r)
+           
+           MOVE PIXEL-COLOR-G TO INTERVAL-TEST-VALUE  *> g = pixel_color.y()
+           PERFORM INTERVAL-CLAMP                     *> intensity.clamp(g)
+           COMPUTE COLOR-G-BYTE = 256 * INTERVAL-TEST-VALUE  *> gbyte = int(256 * clamped_g)
+           
+           MOVE PIXEL-COLOR-B TO INTERVAL-TEST-VALUE  *> b = pixel_color.z()
+           PERFORM INTERVAL-CLAMP                     *> intensity.clamp(b)
+           COMPUTE COLOR-B-BYTE = 256 * INTERVAL-TEST-VALUE  *> bbyte = int(256 * clamped_b)
            
       *> Write out the pixel color components in PPM format
+      *> C++ equivalent: out << rbyte << ' ' << gbyte << ' ' << bbyte << '\n';
            STRING COLOR-R-BYTE " " COLOR-G-BYTE " " COLOR-B-BYTE
                   DELIMITED BY SIZE INTO COLOR-OUTPUT-LINE
            MOVE COLOR-OUTPUT-LINE TO OUTPUT-RECORD
@@ -724,14 +923,25 @@
       *> Write color to terminal (for debugging/display purposes)
       *> Same as WRITE-COLOR-TO-FILE but outputs to terminal instead of file
        WRITE-COLOR-TO-TERMINAL.
-      *> Get RGB components and convert to bytes
-           MOVE PIXEL-COLOR-R TO TEMP-R        *> Extract red component
-           MOVE PIXEL-COLOR-G TO TEMP-G        *> Extract green component
-           MOVE PIXEL-COLOR-B TO B             *> Extract blue component
+      *> Input: PIXEL-COLOR contains pre-averaged color (already scaled by pixel_samples_scale)
+      *> C++ equivalent: write_color(std::cout, const color& pixel_color)
+      
+      *> Set up intensity interval for clamping [0.000, 0.999]
+           MOVE INTENSITY-MIN TO INTERVAL-MIN  *> Set interval min = 0.000
+           MOVE INTENSITY-MAX TO INTERVAL-MAX  *> Set interval max = 0.999
            
-           COMPUTE COLOR-R-BYTE = 255.999 * TEMP-R  *> Convert to byte range
-           COMPUTE COLOR-G-BYTE = 255.999 * TEMP-G  *> Convert to byte range
-           COMPUTE COLOR-B-BYTE = 255.999 * B       *> Convert to byte range
+      *> Get RGB components and clamp each to intensity interval
+           MOVE PIXEL-COLOR-R TO INTERVAL-TEST-VALUE  *> r = pixel_color.x()
+           PERFORM INTERVAL-CLAMP                     *> intensity.clamp(r)
+           COMPUTE COLOR-R-BYTE = 256 * INTERVAL-TEST-VALUE  *> rbyte = int(256 * clamped_r)
+           
+           MOVE PIXEL-COLOR-G TO INTERVAL-TEST-VALUE  *> g = pixel_color.y()
+           PERFORM INTERVAL-CLAMP                     *> intensity.clamp(g)
+           COMPUTE COLOR-G-BYTE = 256 * INTERVAL-TEST-VALUE  *> gbyte = int(256 * clamped_g)
+           
+           MOVE PIXEL-COLOR-B TO INTERVAL-TEST-VALUE  *> b = pixel_color.z()
+           PERFORM INTERVAL-CLAMP                     *> intensity.clamp(b)
+           COMPUTE COLOR-B-BYTE = 256 * INTERVAL-TEST-VALUE  *> bbyte = int(256 * clamped_b)
            
       *> Display color components to terminal
            STRING COLOR-R-BYTE " " COLOR-G-BYTE " " COLOR-B-BYTE
@@ -823,65 +1033,16 @@
            MOVE RAY-POINT-Y TO VEC3-RESULT-Y
            MOVE RAY-POINT-Z TO VEC3-RESULT-Z.
            
-      *>****************************************************************
-      *> SPHERE INTERSECTION FUNCTION - Ray-Sphere Collision Detection  *
-      *>****************************************************************
-      
-      *> Test if ray intersects sphere and return hit distance (optimized version)
-      *> C++ equivalent: double hit_sphere(const point3& center, double radius, const ray& r)
-      *> Input: SPHERE-CENTER-X/Y/Z contains sphere center
-      *>        SPHERE-RADIUS contains sphere radius
-      *>        RAY-DATA contains the ray to test
-      *> Output: SPHERE-HIT-T = hit distance if hit (>0), -1.0 if miss
-       HIT-SPHERE.
-      *> Calculate vector from ray origin to sphere center
-      *> vec3 oc = center - r.origin()
-           COMPUTE SPHERE-OC-X = SPHERE-CENTER-X - RAY-ORIGIN-X
-           COMPUTE SPHERE-OC-Y = SPHERE-CENTER-Y - RAY-ORIGIN-Y
-           COMPUTE SPHERE-OC-Z = SPHERE-CENTER-Z - RAY-ORIGIN-Z
-           
-      *> Calculate length_squared of ray direction
-      *> auto a = r.direction().length_squared()
-           COMPUTE SPHERE-A = (RAY-DIR-X * RAY-DIR-X) +
-                              (RAY-DIR-Y * RAY-DIR-Y) +
-                              (RAY-DIR-Z * RAY-DIR-Z)
-                              
-      *> Calculate dot product of ray direction and oc vector
-      *> auto h = dot(r.direction(), oc)
-           COMPUTE SPHERE-H = (RAY-DIR-X * SPHERE-OC-X) +
-                              (RAY-DIR-Y * SPHERE-OC-Y) +
-                              (RAY-DIR-Z * SPHERE-OC-Z)
-                              
-      *> Calculate oc.length_squared() - radius*radius
-      *> auto c = oc.length_squared() - radius*radius
-           COMPUTE SPHERE-C = (SPHERE-OC-X * SPHERE-OC-X) +
-                              (SPHERE-OC-Y * SPHERE-OC-Y) +
-                              (SPHERE-OC-Z * SPHERE-OC-Z) -
-                              (SPHERE-RADIUS * SPHERE-RADIUS)
-                              
-      *> Calculate discriminant: h*h - a*c
-           COMPUTE SPHERE-DISCRIMINANT = (SPHERE-H * SPHERE-H) -
-                                         (SPHERE-A * SPHERE-C)
-                                         
-      *> Return hit distance or -1.0 if no hit
-           IF SPHERE-DISCRIMINANT < 0
-               MOVE -1.0 TO SPHERE-HIT-T            *> Miss - no intersection
-           ELSE
-      *> Calculate nearest intersection: (h - sqrt(discriminant)) / a
-               COMPUTE SPHERE-HIT-T = (SPHERE-H - 
-                                      (SPHERE-DISCRIMINANT ** 0.5)) / 
-                                      SPHERE-A
-           END-IF
-           EXIT.
+
            
       *>****************************************************************
       *> HITTABLE HIT METHOD - Virtual Method Dispatch                 *
       *>****************************************************************
       *> Abstract hit method dispatch (equivalent to virtual bool hit(...))
-      *> C++ equivalent: virtual bool hit(const ray& r, double ray_tmin, double ray_tmax, hit_record& rec)
+      *> C++ equivalent: virtual bool hit(const ray& r, interval ray_t, hit_record& rec)
       *> Input: HITTABLE-OBJECT contains the object to test
       *>        RAY-DATA contains the ray to test
-      *>        HIT-RAY-TMIN/TMAX contains valid t range
+      *>        HIT-RAY-T contains valid t interval range
       *> Output: HIT-RECORD contains intersection info if hit
       *>         HIT-RESULT = 1 if hit detected, 0 if miss
        HITTABLE-HIT.
@@ -940,6 +1101,10 @@
            MOVE SPHERE-OBJ-RADIUS OF HITTABLE-OBJECT 
                 TO SPHERE-RADIUS OF SPHERE-DATA.
 
+      *> Set up ray_t interval for surrounds testing
+           MOVE HIT-RAY-T-MIN TO INTERVAL-MIN
+           MOVE HIT-RAY-T-MAX TO INTERVAL-MAX
+
       *> Calculate vector from ray origin to sphere center
       *> vec3 oc = center - r.origin()
            COMPUTE SPHERE-OC-X = SPHERE-CENTER-X OF SPHERE-DATA - 
@@ -981,15 +1146,17 @@
       *> auto root = (h - sqrtd) / a;  // Try nearest intersection first
                COMPUTE SPHERE-ROOT1 = 
                    (SPHERE-H - SPHERE-SQRTD) / SPHERE-A
-      *> if (root <= ray_tmin || ray_tmax <= root)
-               IF SPHERE-ROOT1 <= HIT-RAY-TMIN OR 
-                  SPHERE-ROOT1 >= HIT-RAY-TMAX
+      *> if (!ray_t.surrounds(root))
+               MOVE SPHERE-ROOT1 TO INTERVAL-TEST-VALUE
+               PERFORM INTERVAL-TEST-SURROUNDS
+               IF INTERVAL-SURROUNDS = 0
       *> root = (h + sqrtd) / a;  // Try farther intersection
                    COMPUTE SPHERE-ROOT2 = 
                        (SPHERE-H + SPHERE-SQRTD) / SPHERE-A
-      *> if (root <= ray_tmin || ray_tmax <= root) return false
-                   IF SPHERE-ROOT2 <= HIT-RAY-TMIN OR
-                      SPHERE-ROOT2 >= HIT-RAY-TMAX
+      *> if (!ray_t.surrounds(root)) return false
+                   MOVE SPHERE-ROOT2 TO INTERVAL-TEST-VALUE
+                   PERFORM INTERVAL-TEST-SURROUNDS
+                   IF INTERVAL-SURROUNDS = 0
                        MOVE 0 TO HIT-RESULT     *> No valid intersection
                        MOVE 0 TO HIT-OCCURRED
                    ELSE
@@ -1135,14 +1302,14 @@
            EXIT.
            
       *> List hit method (equivalent to bool hit(...) const override)
-      *> C++ equivalent: bool hit(const ray& r, double ray_tmin, double ray_tmax, hit_record& rec) const override
-      *> Input: RAY-DATA contains ray, HIT-RAY-TMIN/TMAX contains range
+      *> C++ equivalent: bool hit(const ray& r, interval ray_t, hit_record& rec) const override
+      *> Input: RAY-DATA contains ray, HIT-RAY-T contains t interval range
       *> Output: HIT-RECORD contains closest intersection, HIT-RESULT = 1 if any hit found
        HITTABLE-LIST-HIT.
       *> Initialize search for closest hit
            MOVE 0 TO HIT-ANYTHING               *> bool hit_anything = false
-           MOVE HIT-RAY-TMAX TO CLOSEST-T       *> auto closest_so_far = ray_tmax
-           MOVE HIT-RAY-TMIN TO TEMP-TMIN       *> Save original tmin
+           MOVE HIT-RAY-T-MAX TO CLOSEST-T      *> auto closest_so_far = ray_t.max
+           MOVE HIT-RAY-T-MIN TO TEMP-TMIN      *> Save original tmin
            
       *> Iterate through all objects in list
       *> for (const auto& object : objects)
@@ -1156,9 +1323,9 @@
                         TO HITTABLE-DATA OF HITTABLE-OBJECT
                    
       *> Test intersection with current object using closer range
-      *> if (object->hit(r, ray_tmin, closest_so_far, temp_rec))
-                   MOVE TEMP-TMIN TO HIT-RAY-TMIN
-                   MOVE CLOSEST-T TO HIT-RAY-TMAX   *> Only accept closer hits
+      *> if (object->hit(r, ray_t.min, closest_so_far, temp_rec))
+                   MOVE TEMP-TMIN TO HIT-RAY-T-MIN
+                   MOVE CLOSEST-T TO HIT-RAY-T-MAX  *> Only accept closer hits
                    PERFORM HITTABLE-HIT             *> Test intersection
       
 
@@ -1174,7 +1341,7 @@
                    IF HIT-RESULT = 1 AND HIT-OCCURRED = 1
                        MOVE 1 TO HIT-ANYTHING       *> hit_anything = true
                        MOVE HIT-T TO CLOSEST-T      *> closest_so_far = temp_rec.t
-      *> rec = temp_rec (save this as the closest hit so far)
+      *> rec = temp_rec (copy hit record immediately - C++ style)
                        MOVE HIT-POINT-X TO TEMP-HIT-POINT-X
                        MOVE HIT-POINT-Y TO TEMP-HIT-POINT-Y
                        MOVE HIT-POINT-Z TO TEMP-HIT-POINT-Z
@@ -1273,66 +1440,125 @@
            EXIT.
            
       *>****************************************************************
-      *> RAY COLOR FUNCTION - Ray Tracing Color Calculation           *
+      *> INTERVAL CLASS PROCEDURES - Range/Interval Operations         *
       *>****************************************************************
       
-      *> Calculate color for a given ray using world objects (equivalent to ray_color function)
-      *> C++ equivalent: color ray_color(const ray& r, const hittable& world)
-      *> Input: RAY-DATA contains the ray to process
-      *>        HITTABLE-LIST contains the world objects
-      *> Output: PIXEL-COLOR contains the calculated color
-       RAY-COLOR-FUNCTION.
-      *> Test ray against world objects using hittable list
-      *> hit_record rec;
-      *> if (world.hit(r, 0, infinity, rec))
-           MOVE 0.001 TO HIT-RAY-TMIN              *> Small epsilon instead of 0
-           MOVE INFINITY-VALUE TO HIT-RAY-TMAX     *> Use infinity constant
-           PERFORM HITTABLE-LIST-HIT               *> Test against world
-           
-      *> If ray hits any object in world, use surface normal for coloring
-           IF HIT-RESULT = 1 AND HIT-OCCURRED = 1
-      *> return 0.5 * (rec.normal + color(1,1,1))
-      *> Add (1,1,1) to normal to shift from [-1,1] to [0,2], then scale by 0.5 to get [0,1]
-               COMPUTE PIXEL-COLOR-R = 0.5 * (HIT-NORMAL-X + 1.0)
-               COMPUTE PIXEL-COLOR-G = 0.5 * (HIT-NORMAL-Y + 1.0)
-               COMPUTE PIXEL-COLOR-B = 0.5 * (HIT-NORMAL-Z + 1.0)
-           ELSE
-      *> Otherwise render sky gradient (existing code)
-      *> Get the ray direction and normalize it to unit vector
-      *> vec3 unit_direction = unit_vector(r.direction());
-               MOVE RAY-DIR-X TO VEC3-A-X        *> Copy ray direction to VEC3-A
-               MOVE RAY-DIR-Y TO VEC3-A-Y
-               MOVE RAY-DIR-Z TO VEC3-A-Z
-               PERFORM VEC3-UNIT-VECTOR-A        *> Calculate unit vector (result in VEC3-RESULT)
-               
-      *> Calculate interpolation parameter based on Y component
-      *> auto a = 0.5*(unit_direction.y() + 1.0);
-      *> This maps Y from [-1,1] to a from [0,1]
-               COMPUTE VEC3-SCALAR = 0.5 * (VEC3-RESULT-Y + 1.0)
-               
-      *> Linear interpolation between white and light blue
-      *> return (1.0-a)*color(1.0, 1.0, 1.0) + a*color(0.5, 0.7, 1.0);
-      *> White color when a=0 (Y=-1, looking down)
-      *> Blue color when a=1 (Y=+1, looking up)
-      
-      *> Calculate (1.0-a) for white component weight
-               COMPUTE VEC3-TEMP-CALC = 1.0 - VEC3-SCALAR
-               
-      *> Calculate final color components using linear interpolation
-      *> Red:   (1-a)*1.0 + a*0.5 = (1-a) + 0.5*a
-               COMPUTE PIXEL-COLOR-R = VEC3-TEMP-CALC * 1.0 + 
-                                       VEC3-SCALAR * 0.5
-               
-      *> Green: (1-a)*1.0 + a*0.7 = (1-a) + 0.7*a  
-               COMPUTE PIXEL-COLOR-G = VEC3-TEMP-CALC * 1.0 + 
-                                       VEC3-SCALAR * 0.7
-               
-      *> Blue:  (1-a)*1.0 + a*1.0 = (1-a) + a = 1.0 (always full blue)
-               COMPUTE PIXEL-COLOR-B = VEC3-TEMP-CALC * 1.0 + 
-                                       VEC3-SCALAR * 1.0
-           END-IF
-           
-      *> Result: Creates sphere with surface normal shading on sky gradient background
-      *> - Sphere hit: Color based on surface normal direction (creates 3D shading effect)
-      *> - Sky background: White to blue gradient based on ray direction
+      *> Default interval constructor - creates empty interval (equivalent to interval())
+      *> C++ equivalent: interval() : min(+infinity), max(-infinity)
+      *> Creates an empty interval where min > max
+       INTERVAL-CONSTRUCT-DEFAULT.
+           MOVE +999999.0 TO INTERVAL-MIN          *> Set to +infinity (empty interval)
+           MOVE -999999.0 TO INTERVAL-MAX          *> Set to -infinity (empty interval)
            EXIT.
+           
+      *> Interval constructor with min and max parameters
+      *> C++ equivalent: interval(double min, double max) : min(min), max(max)
+      *> Input: INTERVAL-TEMP-MIN contains minimum bound
+      *>        INTERVAL-TEMP-MAX contains maximum bound
+      *> Output: INTERVAL-DATA contains initialized interval
+       INTERVAL-CONSTRUCT-WITH-BOUNDS.
+           MOVE INTERVAL-TEMP-MIN TO INTERVAL-MIN  *> Set minimum bound
+           MOVE INTERVAL-TEMP-MAX TO INTERVAL-MAX  *> Set maximum bound
+           EXIT.
+           
+      *> Initialize interval from predefined empty constant
+      *> C++ equivalent: interval empty = interval(+infinity, -infinity)
+       INTERVAL-INIT-EMPTY.
+           MOVE EMPTY-MIN TO INTERVAL-MIN          *> Copy empty interval min
+           MOVE EMPTY-MAX TO INTERVAL-MAX          *> Copy empty interval max
+           EXIT.
+           
+      *> Initialize interval from predefined universe constant  
+      *> C++ equivalent: interval universe = interval(-infinity, +infinity)
+       INTERVAL-INIT-UNIVERSE.
+           MOVE UNIVERSE-MIN TO INTERVAL-MIN       *> Copy universe interval min
+           MOVE UNIVERSE-MAX TO INTERVAL-MAX       *> Copy universe interval max
+           EXIT.
+           
+      *> Calculate size of interval (equivalent to size() method)
+      *> C++ equivalent: double size() const { return max - min; }
+      *> Input: INTERVAL-DATA contains the interval
+      *> Output: INTERVAL-SIZE contains the size (max - min)
+       INTERVAL-CALCULATE-SIZE.
+           COMPUTE INTERVAL-SIZE = INTERVAL-MAX - INTERVAL-MIN  *> Size = max - min
+           EXIT.
+           
+      *> Test if interval contains a value (equivalent to contains() method)
+      *> C++ equivalent: bool contains(double x) const { return min <= x && x <= max; }
+      *> Input: INTERVAL-DATA contains the interval
+      *>        INTERVAL-TEST-VALUE contains value to test
+      *> Output: INTERVAL-CONTAINS = 1 if contained, 0 if not contained
+       INTERVAL-TEST-CONTAINS.
+      *> Test if min <= x <= max (inclusive bounds)
+           IF INTERVAL-MIN <= INTERVAL-TEST-VALUE AND 
+              INTERVAL-TEST-VALUE <= INTERVAL-MAX
+               MOVE 1 TO INTERVAL-CONTAINS          *> Value is contained in interval
+           ELSE
+               MOVE 0 TO INTERVAL-CONTAINS          *> Value is outside interval
+           END-IF
+           EXIT.
+           
+      *> Test if interval surrounds a value (equivalent to surrounds() method)
+      *> C++ equivalent: bool surrounds(double x) const { return min < x && x < max; }
+      *> Input: INTERVAL-DATA contains the interval
+      *>        INTERVAL-TEST-VALUE contains value to test
+      *> Output: INTERVAL-SURROUNDS = 1 if surrounded, 0 if not surrounded
+       INTERVAL-TEST-SURROUNDS.
+      *> Test if min < x < max (exclusive bounds - stricter than contains)
+           IF INTERVAL-MIN < INTERVAL-TEST-VALUE AND 
+              INTERVAL-TEST-VALUE < INTERVAL-MAX
+               MOVE 1 TO INTERVAL-SURROUNDS         *> Value is surrounded by interval
+           ELSE
+               MOVE 0 TO INTERVAL-SURROUNDS         *> Value is not surrounded
+           END-IF
+           EXIT.
+           
+      *> Convenience method to test contains using VEC3 scalar input
+      *> Input: VEC3-SCALAR contains value to test
+      *> Output: INTERVAL-CONTAINS = 1 if contained, 0 if not contained
+       INTERVAL-CONTAINS-VEC3-SCALAR.
+           MOVE VEC3-SCALAR TO INTERVAL-TEST-VALUE  *> Copy test value
+           PERFORM INTERVAL-TEST-CONTAINS           *> Test containment
+           EXIT.
+           
+      *> Convenience method to test surrounds using VEC3 scalar input
+      *> Input: VEC3-SCALAR contains value to test
+      *> Output: INTERVAL-SURROUNDS = 1 if surrounded, 0 if not surrounded
+       INTERVAL-SURROUNDS-VEC3-SCALAR.
+           MOVE VEC3-SCALAR TO INTERVAL-TEST-VALUE  *> Copy test value
+           PERFORM INTERVAL-TEST-SURROUNDS          *> Test surrounding
+           EXIT.
+           
+      *> Clamp a value to interval bounds (equivalent to clamp() method)
+      *> C++ equivalent: double clamp(double x) const { if (x < min) return min; if (x > max) return max; return x; }
+      *> Input: INTERVAL-DATA contains the interval
+      *>        INTERVAL-TEST-VALUE contains value to clamp
+      *> Output: INTERVAL-TEST-VALUE contains clamped value (modified in place)
+       INTERVAL-CLAMP.
+      *> Clamp value to interval bounds [min, max]
+           IF INTERVAL-TEST-VALUE < INTERVAL-MIN
+               MOVE INTERVAL-MIN TO INTERVAL-TEST-VALUE     *> Below minimum - clamp to min
+           ELSE
+               IF INTERVAL-TEST-VALUE > INTERVAL-MAX
+                   MOVE INTERVAL-MAX TO INTERVAL-TEST-VALUE *> Above maximum - clamp to max
+               END-IF
+               *> If within bounds, value remains unchanged
+           END-IF
+           EXIT.
+           
+      *> Convenience method to clamp using VEC3 scalar input/output
+      *> Input: VEC3-SCALAR contains value to clamp
+      *> Output: VEC3-SCALAR contains clamped value (modified in place)
+       INTERVAL-CLAMP-VEC3-SCALAR.
+           MOVE VEC3-SCALAR TO INTERVAL-TEST-VALUE  *> Copy input value
+           PERFORM INTERVAL-CLAMP                   *> Clamp to interval bounds
+           MOVE INTERVAL-TEST-VALUE TO VEC3-SCALAR  *> Copy result back
+           EXIT.
+
+      *> Display interval bounds to terminal (for debugging)
+      *> C++ equivalent: std::cout << "[" << min << ", " << max << "]"
+       INTERVAL-DISPLAY.
+           DISPLAY "[" INTERVAL-MIN ", " INTERVAL-MAX "]"
+           EXIT.
+           
+
